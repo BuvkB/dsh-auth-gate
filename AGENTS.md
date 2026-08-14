@@ -12,6 +12,16 @@ tables).
 
 - **Architecture & roadmap**: `docs/dsh-auth-plan.md` (threat model, guard
   seam design, phased plan M0–M4). Read it before touching `src/`.
+- **M1 executable spec**: `docs/impl-m1.md` (frozen decisions D1–D16, verified
+  mount-point contracts, file blueprints, test matrix, DoD). It is the sole
+  authority for M1 implementation; where plan and spec conflict, the spec
+  wins. Cite only harness internals that appear in its §2 — never explore
+  further.
+- **Agent skills** (`skills/`, auto-discovered):
+  - `dsh-auth-code-review` — review checklist for changes here: enforcement,
+    lifecycle, disposal, real-entry-path tests, prose contracts.
+  - `dsh-auth-pre-push` — smallest relevant evidence before a push;
+    force-with-lease discipline.
 - **Engineering conventions**: `docs/development.md` (commands, hooks, gates,
   release flow). Authoritative for the rules summarized below — update it
   there, not here.

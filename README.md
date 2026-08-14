@@ -4,6 +4,7 @@ dsh web 的应用层认证插件：为公网部署的 dsh web 实例提供登录
 账号口令 → OTP），保护 agent 平面、会话库与 LLM 凭据不被未授权访问。
 
 - 可行性规划与分阶段路线：[docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)
+- M1 实施规格（executable spec，编码代理的唯一执行依据）：[docs/impl-m1.md](docs/impl-m1.md)
 - 开发规范与工程门禁：[docs/development.md](docs/development.md)
 - 供 AI 编码代理的仓库规则：[AGENTS.md](AGENTS.md)
 

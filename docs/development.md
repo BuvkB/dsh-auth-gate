@@ -32,10 +32,13 @@ Run tests by name: `npm run test -- -t "guard"`
 
 ```
 src/
-├── index.ts        # plugin entry: name / inject / Config / apply
-├── guard.ts        # M1: webServer route/upgrade/fallback wrapping (plan §4)
-├── session-store.ts# M1: storage-domain session persistence (plan §5)
-└── *.test.ts       # colocated tests, explicit vitest imports
+├── index.ts          # plugin entry: name / inject / Config / apply + auth 服务接线
+├── guard.ts          # webServer 路由/升级/fallback 包装与拒绝管线
+├── gate.ts           # Gate 词表 + noopGate（M2 换真门）
+├── session-store.ts  # storage-domain 会话持久化
+├── self-check.ts     # 包装覆盖自检（fail loud）
+├── *.test.ts         # 单元测试（显式 vitest import）
+└── integration.*.test.ts  # 真实 cordis/webserver/storage 栈集成测试
 
 lib/                # build output — COMMITTED (see below), never hand-edited
 ```
@@ -74,6 +77,29 @@ byte-stable across Windows/Linux builders.
 - **Commit style**: `type(scope): subject`, scope is a module name
   (`guard`, `session-store`, `ci`). Conventional commits drive releases
   (see below).
+- **Prose**: write enough to preserve the contract, then remove the rest.
+  - Public JSDoc documents caller-visible return distinctions,
+    throws/rejections, side effects, ownership, timing, cancellation, and
+    durability.
+  - Comments state non-obvious contracts only (invariants, race ordering,
+    security boundaries); no control-flow narration, no code restatement.
+  - README carries the consumer contract: configuration, semantics, failure
+    modes, limitations, extension points.
+  - One explanation has one home; repeat only essential contract facts
+    locally and link the rationale.
+  - No leaked reasoning transcripts: no citations of uncommitted drafts or
+    design-session artifacts (decision numbers, `§N` of a draft), no change
+    narration ("used to", "no longer", "this PR"), no reviewer-addressed
+    justifications. State the present behavior; deferred work becomes
+    `TODO(<tag>):` or an issue reference. A resolvable committed-doc citation
+    (`docs/dsh-auth-plan.md` §4) is allowed.
+- **TODO discipline**: inline TODO/FIXME carry a stable tag naming the smell
+  (e.g. `TODO(auth-token-gate):`), say why it is safe to revisit, and name the
+  action. No TODOs for speculative complaints.
+- **GUI demos**: a change to user-visible web behavior (login page, redirects,
+  handshake rejections) must ship with a demonstration recorded from the real
+  flow — real server booted from that branch, clean browser state, no fixture
+  or mock transport. State what the recording proves next to the embed.
 
 ## CI
 
@@ -116,9 +142,8 @@ semantics: `fix:` → 0.0.x, `feat:` → 0.x.0.
   `npm install --registry=https://registry.npmjs.org/`.
 - `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, `zod` are runtime deps
   (all public on npmjs).
-- `@deepseek-ai/dsh-storage-domain` is **not pinned yet**: the registry
-  currently resolves `0.0.1-rc.1` while the deployed dsh checkout carries
-  `0.1.0-rc.6`. Pin the exact version the target deployment's dsh resolves
-  when M1 adds session persistence.
+- `@deepseek-ai/dsh-storage-domain` is pinned to `^0.1.0-rc.6` by
+  `docs/impl-m1.md` §3: verified present on the public registry and matching
+  the deployed dsh checkout's `0.1.0-rc.6`.
 - `lint-staged` stays on `^16.1.0`: 17.x requires Node ≥ 22.22.1, dev machines
   may run earlier 22.x.
