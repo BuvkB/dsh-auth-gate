@@ -5,6 +5,7 @@ dsh web 的应用层认证插件：为公网部署的 dsh web 实例提供登录
 
 - 可行性规划与分阶段路线：[docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)
 - 开发规范与工程门禁：[docs/development.md](docs/development.md)
+- 供 AI 编码代理的仓库规则：[AGENTS.md](AGENTS.md)
 
 ## 快速开始
 
