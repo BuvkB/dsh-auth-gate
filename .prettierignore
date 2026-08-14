@@ -1,5 +1,14 @@
 node_modules
-lib
 dist
 coverage
 package-lock.json
+
+# Generated build output — built by `npm run build`, never hand-edit
+lib/
+
+# release-please generated changelog — its `*` bullets differ from Prettier's
+# markdown style; formatting it here would make the release PR fail format:check
+CHANGELOG.md
+
+# husky internals
+.husky/

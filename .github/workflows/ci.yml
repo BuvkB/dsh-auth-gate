@@ -1,14 +1,17 @@
-name: ci
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,5 +19,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run verify
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm run test:coverage
       - run: npm run build
+      - name: Verify committed lib/ matches a fresh build
+        run: git diff --exit-code -- lib
+      # dsh installs this package into a profile with `npm install` (devDeps
+      # omitted) — the guarded `prepare` script must not fail in that
+      # environment (husky is a devDependency and is absent there). Simulate
+      # the consumer flow on a fresh clone.
+      - name: Verify consumer install (npm install --omit=dev in a fresh clone)
+        shell: bash
+        run: |
+          tmp="$RUNNER_TEMP/consumer-install-test"
+          rm -rf "$tmp"
+          git clone --quiet "$GITHUB_WORKSPACE" "$tmp"
+          cd "$tmp"
+          npm install --omit=dev

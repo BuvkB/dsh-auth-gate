@@ -21,6 +21,14 @@
     "lib"
   ],
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TecFancy/dsh-auth.git"
+  },
+  "homepage": "https://github.com/TecFancy/dsh-auth",
+  "bugs": {
+    "url": "https://github.com/TecFancy/dsh-auth/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "type-check": "tsc -p tsconfig.json --noEmit",
@@ -31,7 +39,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "verify": "npm run format:check && npm run lint && npm run type-check && npm run test:coverage",
-    "prepare": "husky"
+    "prepack": "npm run build",
+    "prepare": "node -e \"try { require.resolve('husky') } catch { process.exit(0) } require('node:child_process').execSync('husky', { stdio: 'inherit' })\""
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
