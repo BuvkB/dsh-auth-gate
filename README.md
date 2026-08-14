@@ -5,6 +5,7 @@ dsh web 的应用层认证插件：为公网部署的 dsh web 实例提供登录
 
 - 可行性规划与分阶段路线：[docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)
 - M1 实施规格（executable spec，编码代理的唯一执行依据）：[docs/impl-m1.md](docs/impl-m1.md)
+- M2 实施规格 + 交接文档：[docs/impl-m2.md](docs/impl-m2.md) / [docs/handoff-m2.md](docs/handoff-m2.md)
 - 开发规范与工程门禁：[docs/development.md](docs/development.md)
 - 供 AI 编码代理的仓库规则：[AGENTS.md](AGENTS.md)
 
