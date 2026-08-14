@@ -106,7 +106,13 @@ semantics: `fix:` → 0.0.x, `feat:` → 0.x.0.
 
 ## Dependency notes
 
-- `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, `zod` are runtime deps.
+- **Registry portability**: this machine forces `NPM_CONFIG_REGISTRY` (internal
+  Nexus), so the lockfile carries Nexus URLs; the repo `.npmrc` sets the public
+  registry plus `replace-registry-host=always`, and CI runners rewrite those
+  hosts to npmjs at `npm ci` time. One lockfile works in both environments —
+  don't add `resolved`-host hacks to workflows.
+- `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, `zod` are runtime deps
+  (all public on npmjs).
 - `@deepseek-ai/dsh-storage-domain` is **not pinned yet**: the registry
   currently resolves `0.0.1-rc.1` while the deployed dsh checkout carries
   `0.1.0-rc.6`. Pin the exact version the target deployment's dsh resolves
