@@ -106,11 +106,14 @@ semantics: `fix:` → 0.0.x, `feat:` → 0.x.0.
 
 ## Dependency notes
 
-- **Registry portability**: this machine forces `NPM_CONFIG_REGISTRY` (internal
-  Nexus), so the lockfile carries Nexus URLs; the repo `.npmrc` sets the public
-  registry plus `replace-registry-host=always`, and CI runners rewrite those
-  hosts to npmjs at `npm ci` time. One lockfile works in both environments —
-  don't add `resolved`-host hacks to workflows.
+- **Registry discipline**: `package-lock.json` is generated strictly against
+  the public npm registry, and `npm run lock:check` (part of `verify` and CI)
+  fails on any other host — GitHub runners cannot reach the internal Nexus
+  this machine points `NPM_CONFIG_REGISTRY` at. `.npmrc` sets
+  `replace-registry-host=never` so local installs fetch the public URLs
+  verbatim (this machine reaches npmjs directly). When adding or updating
+  dependencies, always run
+  `npm install --registry=https://registry.npmjs.org/`.
 - `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, `zod` are runtime deps
   (all public on npmjs).
 - `@deepseek-ai/dsh-storage-domain` is **not pinned yet**: the registry
