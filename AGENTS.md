@@ -16,6 +16,13 @@ tables).
   release flow). Authoritative for the rules summarized below — update it
   there, not here.
 
+## Branch model (user preference, 2026-08-14)
+
+- Development happens on `development`; `main` only receives merges from
+  `development`. CI runs on both branches (push + PR).
+- Never commit or push to `main` directly unless the user says otherwise —
+  always work on `development`.
+
 ## Commit conventions
 
 - `type: subject` enforced by commitlint (`.husky/commit-msg`); type is one
