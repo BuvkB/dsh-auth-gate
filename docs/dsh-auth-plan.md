@@ -7,14 +7,15 @@
 
 ## 0. 已确认的决策（2026-08-14，v3）
 
-| # | 决策 | 影响 |
-|---|---|---|
-| 1 | **不做多用户/会话隔离**（保护对象是整个实例，而非用户间隐私） | 阶段 3 删除；`subject` 仅作审计；方案显著简化 |
-| 2 | 会话必须跨重启持久化 | 用 storage domain（`dsh-storage-json` 已在组合中），见 §5 |
-| 3 | 无上游 PR 通道 | 包装挂载点长期化 → 自检/回归纪律；特权方法仍钉 loopback，见 §7 |
-| 4 | 探针清理 | 已 `cordis_undefine`，无残留 |
+| #   | 决策                                                          | 影响                                                           |
+| --- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| 1   | **不做多用户/会话隔离**（保护对象是整个实例，而非用户间隐私） | 阶段 3 删除；`subject` 仅作审计；方案显著简化                  |
+| 2   | 会话必须跨重启持久化                                          | 用 storage domain（`dsh-storage-json` 已在组合中），见 §5      |
+| 3   | 无上游 PR 通道                                                | 包装挂载点长期化 → 自检/回归纪律；特权方法仍钉 loopback，见 §7 |
+| 4   | 探针清理                                                      | 已 `cordis_undefine`，无残留                                   |
 
 **分阶段路线（最终版）：**
+
 1. 阶段 1：随机 token 保护（共享口令）；
 2. 阶段 2：真正登录，凭证维护在配置文件中（多条目 = 多个管理员各自的凭证，互相不隔离）；
 3. 阶段 3：OTP（TOTP）加固。
@@ -26,12 +27,12 @@
 修正后的认知：**auth 门保护的不是"API Key"这一项，而是整个 dsh 实例的单一入口**。未授权者
 一旦通过信任围栏（`--trusted-host`，它只是 DNS-rebinding 防栏，不是认证），可以触及：
 
-| 资产 | 泄露途径 |
-|---|---|
+| 资产         | 泄露途径                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | API Key 本身 | GUI 的 `credentials.describe` 被 loopback 钉死读不到；但 agent 的 bash 工具可直接 `cat ~/.dsh/.credentials.yaml`（除非文件沙箱拦截） |
-| LLM 额度 | 更现实的主要损失：不必偷 Key，直接开 agent 会话白嫖 API 额度（成本滥用） |
-| 全部会话历史 | 会话列表/内容 RPC 对所有过围栏的浏览器开放；agent shell 也可读 `sessions/*.jsonl`——可能含 agent 以往读入上下文的秘密 |
-| 服务器 RCE | agent 平面 = 任意 shell 执行（standard 预设的 bash 工具），等于服务器 shell 外送 |
+| LLM 额度     | 更现实的主要损失：不必偷 Key，直接开 agent 会话白嫖 API 额度（成本滥用）                                                             |
+| 全部会话历史 | 会话列表/内容 RPC 对所有过围栏的浏览器开放；agent shell 也可读 `sessions/*.jsonl`——可能含 agent 以往读入上下文的秘密                 |
+| 服务器 RCE   | agent 平面 = 任意 shell 执行（standard 预设的 bash 工具），等于服务器 shell 外送                                                     |
 
 **关于工作区的澄清**：workspace 是 GUI 的组织概念，**不是访问控制边界**。所有会话都在同一个
 `DSH_HOME/sessions`，任何过了门的客户端都能看到并打开全部会话（包括他人的）。"客户端先加
@@ -90,28 +91,39 @@ Host 插件**无上游改动**地对全部 HTTP 请求与全部 WS 升级做守�
 
 ```js
 export function apply(ctx, config) {
-  const server = ctx.webServer // inject: ['webServer', ...]
+  const server = ctx.webServer; // inject: ['webServer', ...]
   const guard = (kind) => (handler) => async (req, res) => {
-    const pathname = String(req.url ?? '/').split('?')[0]
-    const decision = await ctx.auth.decide(req, { kind, pathname }) // auth 服务：白名单/会话/目标
-    if (decision === 'allow') return handler(req, res)
-    if (decision === 'redirect') {
-      res.writeHead(302, { location: `/auth/login?next=${encodeURIComponent(pathname)}` }); return res.end()
+    const pathname = String(req.url ?? "/").split("?")[0];
+    const decision = await ctx.auth.decide(req, { kind, pathname }); // auth 服务：白名单/会话/目标
+    if (decision === "allow") return handler(req, res);
+    if (decision === "redirect") {
+      res.writeHead(302, { location: `/auth/login?next=${encodeURIComponent(pathname)}` });
+      return res.end();
     }
-    res.writeHead(401); return res.end('unauthorized')
-  }
-  const orig = { register: server.register.bind(server),
-                 registerUpgrade: server.registerUpgrade.bind(server),
-                 registerFallback: server.registerFallback.bind(server) }
-  const snap = { exact: new Map(server.exact), prefixes: new Map(server.prefixes),
-                 upgrades: new Map(server.upgrades), fallback: server.fallback }
-  for (const [p, r] of server.exact)    server.exact.set(p, { ...r, handler: guard('exact')(r.handler) })
-  for (const [p, r] of server.prefixes) server.prefixes.set(p, { ...r, handler: guard('prefix')(r.handler) })
-  for (const [p, r] of server.upgrades) server.upgrades.set(p, { ...r, handler: guardUpgrade(r.handler) })
-  if (server.fallback) server.fallback = guard('fallback')(server.fallback)
-  server.register = (r) => orig.register({ ...r, handler: guard(r.kind)(r.handler) })
-  server.registerUpgrade = (r) => orig.registerUpgrade({ ...r, handler: guardUpgrade(r.handler) })
-  server.registerFallback = (h) => orig.registerFallback(guard('fallback')(h))
+    res.writeHead(401);
+    return res.end("unauthorized");
+  };
+  const orig = {
+    register: server.register.bind(server),
+    registerUpgrade: server.registerUpgrade.bind(server),
+    registerFallback: server.registerFallback.bind(server),
+  };
+  const snap = {
+    exact: new Map(server.exact),
+    prefixes: new Map(server.prefixes),
+    upgrades: new Map(server.upgrades),
+    fallback: server.fallback,
+  };
+  for (const [p, r] of server.exact)
+    server.exact.set(p, { ...r, handler: guard("exact")(r.handler) });
+  for (const [p, r] of server.prefixes)
+    server.prefixes.set(p, { ...r, handler: guard("prefix")(r.handler) });
+  for (const [p, r] of server.upgrades)
+    server.upgrades.set(p, { ...r, handler: guardUpgrade(r.handler) });
+  if (server.fallback) server.fallback = guard("fallback")(server.fallback);
+  server.register = (r) => orig.register({ ...r, handler: guard(r.kind)(r.handler) });
+  server.registerUpgrade = (r) => orig.registerUpgrade({ ...r, handler: guardUpgrade(r.handler) });
+  server.registerFallback = (h) => orig.registerFallback(guard("fallback")(h));
   // auth 公共端点（orig.register）+ 自检 + 还原，见 §7/§8
 }
 ```
@@ -184,13 +196,13 @@ export function apply(ctx, config) {
 
 ## 7. 无上游 PR 通道的限制
 
-| 限制 | 影响 | 对策 |
-|---|---|---|
-| 包装是**非契约接口** | dsh 升级可能改字段名/分发行为 → 静默失效即裸奔 | 启动自检（§4.3）+ 升级回归清单 + 盯 dsh 版本变更 |
+| 限制                                     | 影响                                                         | 对策                                                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 包装是**非契约接口**                     | dsh 升级可能改字段名/分发行为 → 静默失效即裸奔               | 启动自检（§4.3）+ 升级回归清单 + 盯 dsh 版本变更                                                            |
 | `PRIVILEGED_METHODS` **仍钉死 loopback** | 认证用户也无法从 GUI 改 settings/credentials（配置只能 SSH） | 接受（单门模型下影响小，反而把"门内人改配置"这条路堵住了）；可选 hacky 开关（守卫改写 Host 头解锁）默认关闭 |
-| 无 auth 事件/中间件 | 需自建 `auth` 服务名 + 包装 | 无影响（宿主平面一行，单实例） |
-| 登录页无法用 SPA 渲染 | 预认证阶段 SPA 不可达 | 自包含 HTML 登录页（计划内）；认证后的会话状态/登出按钮可加 client 半边（browser 插件）做进 GUI |
-| 信任围栏不认 auth | `--trusted-host` 仍需配置，两者正交叠加 | 部署文档注明 |
+| 无 auth 事件/中间件                      | 需自建 `auth` 服务名 + 包装                                  | 无影响（宿主平面一行，单实例）                                                                              |
+| 登录页无法用 SPA 渲染                    | 预认证阶段 SPA 不可达                                        | 自包含 HTML 登录页（计划内）；认证后的会话状态/登出按钮可加 client 半边（browser 插件）做进 GUI             |
+| 信任围栏不认 auth                        | `--trusted-host` 仍需配置，两者正交叠加                      | 部署文档注明                                                                                                |
 
 ---
 
@@ -221,26 +233,26 @@ export function apply(ctx, config) {
 
 ## 9. 路线图
 
-| 阶段 | 内容 | 交付物 |
-|---|---|---|
-| M0 | 探针验证挂载点 | ✅ 完成（探针已清理） |
-| M1 | `dsh-auth` 包骨架 + 守卫 + 启动自检 + 持久化会话（storage domain） | npm 包 host 半边 + profile 行 |
-| M2 | 阶段 1：随机 token 门（credentials 引用 + Bearer + 登录页发 cookie） | 可部署的公网最小防护 |
-| M3 | 阶段 2：users.yaml + argon2id + 登录限速 + `dsh-auth user` CLI | 真正登录 |
-| M4 | 阶段 3：TOTP 两段式登录 + 配置项 | OTP 加固 |
+| 阶段 | 内容                                                                 | 交付物                        |
+| ---- | -------------------------------------------------------------------- | ----------------------------- |
+| M0   | 探针验证挂载点                                                       | ✅ 完成（探针已清理）         |
+| M1   | `dsh-auth` 包骨架 + 守卫 + 启动自检 + 持久化会话（storage domain）   | npm 包 host 半边 + profile 行 |
+| M2   | 阶段 1：随机 token 门（credentials 引用 + Bearer + 登录页发 cookie） | 可部署的公网最小防护          |
+| M3   | 阶段 2：users.yaml + argon2id + 登录限速 + `dsh-auth user` CLI       | 真正登录                      |
+| M4   | 阶段 3：TOTP 两段式登录 + 配置项                                     | OTP 加固                      |
 
 ---
 
 ## 10. 附录：关键代码位置
 
-| 事实 | 位置 |
-|---|---|
-| `webServer`：路由表/注册/分发/升级监听 | `node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js`（register L53、registerUpgrade L67、registerFallback L82、match L194、upgrade 监听 L132） |
-| `/api` 前缀路由 + 信任围栏 + WS 注册 | `node_modules/@deepseek-ai/dsh-client-connection/lib/index.js`（isTrustedApiRequest L184、/api 路由 L550-561、WS L566-585） |
-| PRIVILEGED_METHODS（loopback 钉死清单） | 同上 L504-520（意图注释 L485-503） |
-| SPA fallback 席位 | `node_modules/@deepseek-ai/dsh-host-frontend-static/lib/index.js` L69-83 |
-| web 宿主组合（webserver/connection 行） | `node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml`（webserver L115-120、connection L156-163） |
-| storage domain 用法范式 | `node_modules/@deepseek-ai/dsh-message-feedback/lib/types/spec.js` + `lib/index.js` L258-267 |
-| credentials 引用模型（环境变量名） | `node_modules/@deepseek-ai/dsh-credentials/lib/types/index.js` |
-| profile patch 层栈与 bundle 机制 | `dsh/lib/profile-boot-*.js`（composeProfile） |
-| 本机 web profile bundles | `C:\Users\Randal_Wang\.dsh\profiles\web\package.json` |
+| 事实                                    | 位置                                                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `webServer`：路由表/注册/分发/升级监听  | `node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js`（register L53、registerUpgrade L67、registerFallback L82、match L194、upgrade 监听 L132） |
+| `/api` 前缀路由 + 信任围栏 + WS 注册    | `node_modules/@deepseek-ai/dsh-client-connection/lib/index.js`（isTrustedApiRequest L184、/api 路由 L550-561、WS L566-585）                           |
+| PRIVILEGED_METHODS（loopback 钉死清单） | 同上 L504-520（意图注释 L485-503）                                                                                                                    |
+| SPA fallback 席位                       | `node_modules/@deepseek-ai/dsh-host-frontend-static/lib/index.js` L69-83                                                                              |
+| web 宿主组合（webserver/connection 行） | `node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml`（webserver L115-120、connection L156-163）                                                   |
+| storage domain 用法范式                 | `node_modules/@deepseek-ai/dsh-message-feedback/lib/types/spec.js` + `lib/index.js` L258-267                                                          |
+| credentials 引用模型（环境变量名）      | `node_modules/@deepseek-ai/dsh-credentials/lib/types/index.js`                                                                                        |
+| profile patch 层栈与 bundle 机制        | `dsh/lib/profile-boot-*.js`（composeProfile）                                                                                                         |
+| 本机 web profile bundles                | `C:\Users\Randal_Wang\.dsh\profiles\web\package.json`                                                                                                 |

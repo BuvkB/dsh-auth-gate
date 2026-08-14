@@ -1,11 +1,13 @@
 # Node
 node_modules/
+lib/
 dist/
+coverage/
+*.tsbuildinfo
 *.log
 npm-debug.log*
 
 # OS / editor
 .DS_Store
 Thumbs.db
-.vscode/
 .idea/
