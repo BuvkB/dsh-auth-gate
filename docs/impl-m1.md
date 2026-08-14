@@ -68,8 +68,12 @@
   写先落介质再改内存；返回的记录是存储对象本身，**不得原地修改**。
 - `DomainSpec = { name: string; version: number; global?: ...; tables: Record<string, DomainTableSpec> }`。
   spec 的 record schema 用 **zod**（`z.infer` 派生类型，不手写重复类型）。
+- **名称约束（实测核实）**：`DomainSpec.name` 与表名都必须匹配
+  `UNIT_NAME_RE = /^[a-z][a-z0-9_]*$/`（`@deepseek-ai/dsh-storage` 导出）——**禁止连字符**，
+  否则 `defineDomain` 在模块加载时抛错。故本插件 domain 名为 `dsh_auth_sessions`（下划线）。
 - 后端：`dsh-storage-json` 以 `backend: "json"` 注册，root 下每 unit 一个 `<unit>.json` 文件；
-  `dsh-storage-domain` 的 Config `{ backend: "json" }`（本机 web profile 已这样配置）。
+  文件格式（实测核实）：`{ unit: { name, version }, global, tables: { <table>: { <key>: record } } }`，
+  pretty-printed + 末尾换行。`dsh-storage-domain` 的 Config `{ backend: "json" }`（本机 web profile 已这样配置）。
 - 真实 web 组合中 `storage-domain` 行在 bundle 层（`dsh-web-app`），profile 层之后才挂我们的行，
   因此 apply 时 `ctx.get("storageDomain")` 正常可见；集成测试中先挂 storage 栈再挂本插件。
 
@@ -185,7 +189,9 @@ export interface WrappableServer {
 
 export type GuardLog = { error(message: unknown): void };
 
-export function isGuarded(target: Function): boolean;
+// 签名说明：`Function` 被 lint（no-unsafe-function-type）禁用，用任意函数形
+// 式 `(...args: never[]) => unknown` 表达"接受任意 callable"。
+export function isGuarded(target: (...args: never[]) => unknown): boolean;
 export function guardHttp(gate: () => Gate, kind: GuardKind, handler: HttpHandler): HttpHandler;
 export function guardUpgrade(gate: () => Gate, handler: UpgradeHandler): UpgradeHandler;
 export function denyHttp(req: IncomingMessage, res: ServerResponse): void;
@@ -256,7 +262,7 @@ const sessionRowSchema = z.object({
 // 键 = digest（64 位 hex 小写），不进 row；row 只存以上四字段。
 
 export const sessionDomainSpec = defineDomain({
-  name: "dsh-auth-sessions",
+  name: "dsh_auth_sessions", // 必须匹配 UNIT_NAME_RE（无连字符，见 §2.2）
   version: 0,
   tables: { sessions: domainTable(sessionRowSchema) },
 });
@@ -338,7 +344,8 @@ export function apply(ctx: Context, config: AuthConfig): void { ... }
 4. 会话层（软接 storageDomain）：
    `const storageDomain = ctx.get("storageDomain") as unknown as DomainFacility | undefined;`
    - 缺失：`log.error("storage-domain is unavailable: session persistence is disabled (guards stay mounted)");`
-   - 存在：`ctx.effect(() => { let closed = false; const ready = storageDomain.open(sessionDomainSpec).then((domain) => { if (closed) { void domain.close(); return; } auth.sessions = new SessionStore(domain.table("sessions")); log.info("session domain opened: dsh-auth-sessions"); }, (error: unknown) => { log.error(`session domain open failed: ${error instanceof Error ? error.message : String(error)}`); }); return async () => { closed = true; await (await ready.catch(() => undefined))?.close(); }; }, "dsh-auth: session domain");`
+   - 存在：`ctx.effect(() => { let closed = false; const opening = storageDomain.open(sessionDomainSpec); const ready = opening.then((domain) => { if (closed) { void domain.close(); return; } auth.sessions = new SessionStore(domain.table("sessions")); log.info("session domain opened: dsh_auth_sessions"); }, (error: unknown) => { log.error(`session domain open failed: ${error instanceof Error ? error.message : String(error)}`); }); return async () => { closed = true; await ready.catch(() => undefined); const domain = await opening.catch(() => undefined); await domain?.close(); }; }, "dsh-auth: session domain");`
+     （注意：`ready` 挂 `.then` 后解析为 `void`，disposer 必须从**原始** `opening` promise 取 domain 来 close，否则 domain 泄漏。）
 5. 守卫：`const unwrap = wrapServer(server, () => auth.gate, log); ctx.effect(() => unwrap, "dsh-auth: guard unwrap");`
    （effect 逆序注销保证：先撤守卫，后关 domain。）
 6. 自检：`const failures = assertGuarded(server); if (failures.length > 0) { for (const f of failures) log.error("unwrapped entry: " + f); throw new Error("dsh-auth: guard self-check failed: " + failures.join(", ")); }`
@@ -434,7 +441,8 @@ import * as storageDomain from "@deepseek-ai/dsh-storage-domain";
    webServer，故 ctx1 也挂 WebServer `{ host: "127.0.0.1", port: 0 }`），保留全部 Fiber。
 2. `await` 一个小轮询（≤5s，50ms 间隔）直到 `ctx1.get("auth")!.sessions !== undefined`。
 3. `const { token } = await store.create("token", 60_000)`；断言 `getByToken(token)` 返回行；断言
-   `<root>/dsh-auth-sessions.json` 存在且内容含 digest 键（读文件、`JSON.parse`、查 sessions 表键）。
+   `<root>/dsh_auth_sessions.json` 存在且内容含 digest 键（读文件、`JSON.parse`、
+   断言 `doc.tables.sessions[digest]` 存在——文件结构见 §2.2）。
 4. 逆序 dispose ctx1 全部 Fiber。
 5. ctx2：同一 root、同一栈、同样等待 sessions ready；`getByToken(token)` 返回相同 `subject` 与
    `expiresAt`（**跨"重启"持久化成立**）。
