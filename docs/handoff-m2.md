@@ -15,8 +15,9 @@ M1（守卫 + 持久化会话 + 自检）已交付并在**真实 Ubuntu 服务�
 
 - 分支：`development`（开发唯一分支；`main` 只收 merge；**永不直接提交 main**）。
 - 远端 `origin/development` 已同步到 `4b5f712`（M1 全部提交已推，CI 对最新提交**全绿**）；无 open PR。
-- 工作区干净。提交历史：`02c6f73`（spec+skills 基线）→ `eedfda9`（deps）→ `168b41e`（M1 实现）→
-  `4b5f712`（spec 修正）。
+- 本地 HEAD `c184dbc`（M2 规格审查修订：M15–M22 冻结决策 + 冒烟序列，**未推**）；工作区干净。
+  提交历史：`02c6f73`（spec+skills 基线）→ `eedfda9`（deps）→ `168b41e`（M1 实现）→ `4b5f712`
+  （spec 修正）→ `c184dbc`（M2 规格最终化）。
 - M2 实施后**提交纪律**：未获用户指令不 commit/push；commit 用 Conventional Commits；`lib/` 与 `src/`
   同批提交（CI 有 parity gate）。
 
