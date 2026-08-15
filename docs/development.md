@@ -32,10 +32,26 @@ Run tests by name: `npm run test -- -t "guard"`
 
 ```
 src/
-├── index.ts        # plugin entry: name / inject / Config / apply
-├── guard.ts        # M1: webServer route/upgrade/fallback wrapping (plan §4)
-├── session-store.ts# M1: storage-domain session persistence (plan §5)
-└── *.test.ts       # colocated tests, explicit vitest imports
+├── index.ts           # plugin entry + auth 服务接线（M3：mode 二选一装配 password 流）
+├── guard.ts           # webServer 路由/升级/fallback 包装与拒绝管线 + AUTH_PATH_PREFIX
+├── gate.ts            # Gate 词表 + noopGate
+├── token-gate.ts      # TokenGate：白名单/cookie/Bearer 共享 token + safeEqual（token 模式）
+├── password-gate.ts   # PasswordGate：白名单/cookie/Bearer 会话 token（password 模式，M3 新增）
+├── cookie.ts          # Cookie 头解析
+├── form-body.ts       # urlencoded body 读取
+├── login-page.ts      # 自包含登录页（token + password 两版）
+├── auth-common.ts     # 端点共享纯函数（validateNext，M3 提取）
+├── auth-endpoints.ts  # token 模式 /auth 兜底 + 三个 exact 端点
+├── password-login.ts  # POST /auth/login 逻辑（限速/用户文件/恒时验证/发会话，M3 新增）
+├── password-endpoints.ts # password 模式 /auth 兜底 + 三个 exact 端点（M3 新增）
+├── session-store.ts   # storage-domain 会话持久化
+├── users-file.ts      # users.yaml 加载/校验/原子写 + 默认路径解析（M3 新增）
+├── rate-limit.ts      # 双桶登录限速器（M3 新增）
+├── password.ts        # scrypt 哈希/恒时验证 + DUMMY_HASH（M3 新增）
+├── cli.ts             # dsh-auth 用户管理 CLI（bin 入口，M3 新增）
+├── self-check.ts      # 包装覆盖自检（fail loud）
+├── *.test.ts          # 单元测试（显式 vitest import）
+└── integration.*.test.ts  # 真实 cordis/webserver/storage 栈集成测试
 
 lib/                # build output — COMMITTED (see below), never hand-edited
 ```
@@ -74,6 +90,29 @@ byte-stable across Windows/Linux builders.
 - **Commit style**: `type(scope): subject`, scope is a module name
   (`guard`, `session-store`, `ci`). Conventional commits drive releases
   (see below).
+- **Prose**: write enough to preserve the contract, then remove the rest.
+  - Public JSDoc documents caller-visible return distinctions,
+    throws/rejections, side effects, ownership, timing, cancellation, and
+    durability.
+  - Comments state non-obvious contracts only (invariants, race ordering,
+    security boundaries); no control-flow narration, no code restatement.
+  - README carries the consumer contract: configuration, semantics, failure
+    modes, limitations, extension points.
+  - One explanation has one home; repeat only essential contract facts
+    locally and link the rationale.
+  - No leaked reasoning transcripts: no citations of uncommitted drafts or
+    design-session artifacts (decision numbers, `§N` of a draft), no change
+    narration ("used to", "no longer", "this PR"), no reviewer-addressed
+    justifications. State the present behavior; deferred work becomes
+    `TODO(<tag>):` or an issue reference. A resolvable committed-doc citation
+    (`docs/dsh-auth-plan.md` §4) is allowed.
+- **TODO discipline**: inline TODO/FIXME carry a stable tag naming the smell
+  (e.g. `TODO(auth-token-gate):`), say why it is safe to revisit, and name the
+  action. No TODOs for speculative complaints.
+- **GUI demos**: a change to user-visible web behavior (login page, redirects,
+  handshake rejections) must ship with a demonstration recorded from the real
+  flow — real server booted from that branch, clean browser state, no fixture
+  or mock transport. State what the recording proves next to the embed.
 
 ## CI
 
@@ -116,9 +155,8 @@ semantics: `fix:` → 0.0.x, `feat:` → 0.x.0.
   `npm install --registry=https://registry.npmjs.org/`.
 - `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, `zod` are runtime deps
   (all public on npmjs).
-- `@deepseek-ai/dsh-storage-domain` is **not pinned yet**: the registry
-  currently resolves `0.0.1-rc.1` while the deployed dsh checkout carries
-  `0.1.0-rc.6`. Pin the exact version the target deployment's dsh resolves
-  when M1 adds session persistence.
+- `@deepseek-ai/dsh-storage-domain` is pinned to `^0.1.0-rc.6` by
+  `docs/impl-m1.md` §3: verified present on the public registry and matching
+  the deployed dsh checkout's `0.1.0-rc.6`.
 - `lint-staged` stays on `^16.1.0`: 17.x requires Node ≥ 22.22.1, dev machines
   may run earlier 22.x.

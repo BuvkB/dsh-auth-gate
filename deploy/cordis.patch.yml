@@ -1,0 +1,22 @@
+# 生产 overlay 模板（dsh-auth）
+#
+# 用法：复制到 $DSH_HOME/cordis.patch.yml 并按部署环境调整（见 docs/deployment.md）。
+# 前置条件：dsh-auth 已安装到 profile（dsh plugin --profile web add <tarball>），
+#           $DSH_HOME/auth/users.yaml 已用 `dsh-auth user add` 建好（chmod 600）。
+#
+# 注意：
+# - name 是包名（非路径）；id 与 name 一致即可。
+# - cookieSecure 依赖 HTTPS 前置终结（TLS 反代）。纯 http 测试环境必须 false，
+#   否则浏览器不会保存会话 cookie（curl 不受影响）。
+# - 本文件复制到 $DSH_HOME 后即成为该实例的认证门；删除本行 = 实例裸奔（fail-closed
+#   纪律：验收清单含"auth 行健康"检查）。
+- insert:
+    - id: dsh-auth
+      name: dsh-auth
+      config:
+        mode: "password"
+        cookieSecure: true
+        # 以下均为可选，默认值见 README：
+        # usersFile: ""          # 默认 $DSH_HOME/auth/users.yaml
+        # sessionTtl: 604800     # 秒，自创建起固定过期
+        # cookieName: dsh_auth

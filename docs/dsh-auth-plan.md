@@ -176,8 +176,8 @@ export function apply(ctx, config) {
 - 凭证文件：`$DSH_HOME/auth/users.yaml`（自建——settings/credentials 两条缝分别是命名空间/
   单值模型，装不下用户表）。条目：`username → { passwordHash, totpSecret?, disabled? }`。
   多条目的语义：**多个管理员各自的登录凭证**，互相完全可见（不做隔离）。
-- 口令哈希：argon2id（`@node-rs/argon2` 带预编译二进制，Ubuntu x64/arm64 免编译）或 bcryptjs
-  （纯 JS，无原生依赖，性能低但登录低频可接受）。**文件里永不出现明文口令**。
+- 口令哈希：**scrypt（`node:crypto` 内建，M3 实施选用——见 §9 路线图注）**；argon2id
+  （`@node-rs/argon2` 带预编译二进制）与 bcryptjs（纯 JS）为备选。**文件里永不出现明文口令**。
 - 配套管理 CLI：`dsh-auth user add/list/disable`（生成哈希、编辑 users.yaml）——避免手写哈希出错。
 - 登录限速：按 IP + 账号计数，失败指数退避；恒时比较。
 
@@ -223,7 +223,7 @@ export function apply(ctx, config) {
 - [ ] Cookie：`HttpOnly; Secure; SameSite=Lax; Path=/`（Secure 依赖前置 TLS 终结）
 - [ ] 登录成功即换 token（防会话固定）；登出吊销并写盘
 - [ ] 登录限速（IP+账号，指数退避）；TOTP 防重放
-- [ ] 口令 argon2id/bcrypt，文件零明文
+- [ ] 口令 scrypt（node:crypto 内建，M3 已实施），文件零明文
 - [ ] 恒时比较；日志不落 token/口令
 - [ ] fail-closed 纪律：auth 行禁用即裸奔 → 部署验收清单含"auth 行健康"检查
 - [ ] 自包含登录页（无 CDN/第三方资源）
@@ -233,13 +233,16 @@ export function apply(ctx, config) {
 
 ## 9. 路线图
 
-| 阶段 | 内容                                                                 | 交付物                        |
-| ---- | -------------------------------------------------------------------- | ----------------------------- |
-| M0   | 探针验证挂载点                                                       | ✅ 完成（探针已清理）         |
-| M1   | `dsh-auth` 包骨架 + 守卫 + 启动自检 + 持久化会话（storage domain）   | npm 包 host 半边 + profile 行 |
-| M2   | 阶段 1：随机 token 门（credentials 引用 + Bearer + 登录页发 cookie） | 可部署的公网最小防护          |
-| M3   | 阶段 2：users.yaml + argon2id + 登录限速 + `dsh-auth user` CLI       | 真正登录                      |
-| M4   | 阶段 3：TOTP 两段式登录 + 配置项                                     | OTP 加固                      |
+| 阶段 | 内容                                                                                | 交付物                                 |
+| ---- | ----------------------------------------------------------------------------------- | -------------------------------------- |
+| M0   | 探针验证挂载点                                                                      | ✅ 完成（探针已清理）                  |
+| M1   | `dsh-auth` 包骨架 + 守卫 + 启动自检 + 持久化会话（storage domain）                  | ✅ 完成：npm 包 host 半边 + profile 行 |
+| M2   | 阶段 1：随机 token 门（credentials 引用 + Bearer + 登录页发 cookie）                | ✅ 完成：可部署的公网最小防护          |
+| M3   | 阶段 2：users.yaml + 口令哈希（**scrypt**，见下注）+ 登录限速 + `dsh-auth user` CLI | ✅ 完成：真正登录                      |
+| M4   | 阶段 3：TOTP 两段式登录 + 配置项                                                    | OTP 加固                               |
+
+> M3 注：口令哈希按用户拍板选用 `node:crypto` **scrypt**（N=2¹⁶/r=8/p=1，零新增原生依赖；
+> 规格 `docs/impl-m3.md` P1/P2），替代本节初稿中的 argon2id/bcryptjs 候选。
 
 ---
 

@@ -12,6 +12,24 @@ tables).
 
 - **Architecture & roadmap**: `docs/dsh-auth-plan.md` (threat model, guard
   seam design, phased plan M0–M4). Read it before touching `src/`.
+- **M1 executable spec**: `docs/impl-m1.md` (frozen decisions D1–D16, verified
+  mount-point contracts, file blueprints, test matrix, DoD). It is the sole
+  authority for M1 implementation; where plan and spec conflict, the spec
+  wins. Cite only harness internals that appear in its §2 — never explore
+  further.
+- **M2 executable spec**: `docs/impl-m2.md` (frozen decisions M1–M22 for the
+  shared-token gate). **M2 execution starts by reading `docs/handoff-m2.md`**
+  (environment facts, server verification workflow, M1 pitfalls) — a new
+  session has no prior context.
+- **M3 executable spec**: `docs/impl-m3.md` (frozen decisions P1–P26 for the
+  password flow: users.yaml + scrypt + rate limiting + `dsh-auth user` CLI).
+  **M3 execution starts by reading `docs/handoff-m2.md`** (environment facts
+  still valid) and finishes by writing `docs/handoff-m3.md` for M4.
+- **Agent skills** (`skills/`, auto-discovered):
+  - `dsh-auth-code-review` — review checklist for changes here: enforcement,
+    lifecycle, disposal, real-entry-path tests, prose contracts.
+  - `dsh-auth-pre-push` — smallest relevant evidence before a push;
+    force-with-lease discipline.
 - **Engineering conventions**: `docs/development.md` (commands, hooks, gates,
   release flow). Authoritative for the rules summarized below — update it
   there, not here.
