@@ -32,15 +32,23 @@ Run tests by name: `npm run test -- -t "guard"`
 
 ```
 src/
-├── index.ts           # plugin entry + auth 服务接线 + credentials 解析器（M2 改装配）
+├── index.ts           # plugin entry + auth 服务接线（M3：mode 二选一装配 password 流）
 ├── guard.ts           # webServer 路由/升级/fallback 包装与拒绝管线 + AUTH_PATH_PREFIX
-├── gate.ts            # Gate 词表 + noopGate（M2 换真门）
-├── token-gate.ts      # TokenGate：白名单/cookie/Bearer + safeEqual（M2 新增）
-├── cookie.ts          # Cookie 头解析（M2 新增）
-├── form-body.ts       # urlencoded body 读取（M2 新增）
-├── login-page.ts      # 自包含登录页（M2 新增）
-├── auth-endpoints.ts  # /auth 兜底前缀 + 三个 exact 端点（M2 新增）
-├── session-store.ts   # storage-domain 会话持久化（buildSetCookie 加参）
+├── gate.ts            # Gate 词表 + noopGate
+├── token-gate.ts      # TokenGate：白名单/cookie/Bearer 共享 token + safeEqual（token 模式）
+├── password-gate.ts   # PasswordGate：白名单/cookie/Bearer 会话 token（password 模式，M3 新增）
+├── cookie.ts          # Cookie 头解析
+├── form-body.ts       # urlencoded body 读取
+├── login-page.ts      # 自包含登录页（token + password 两版）
+├── auth-common.ts     # 端点共享纯函数（validateNext，M3 提取）
+├── auth-endpoints.ts  # token 模式 /auth 兜底 + 三个 exact 端点
+├── password-login.ts  # POST /auth/login 逻辑（限速/用户文件/恒时验证/发会话，M3 新增）
+├── password-endpoints.ts # password 模式 /auth 兜底 + 三个 exact 端点（M3 新增）
+├── session-store.ts   # storage-domain 会话持久化
+├── users-file.ts      # users.yaml 加载/校验/原子写 + 默认路径解析（M3 新增）
+├── rate-limit.ts      # 双桶登录限速器（M3 新增）
+├── password.ts        # scrypt 哈希/恒时验证 + DUMMY_HASH（M3 新增）
+├── cli.ts             # dsh-auth 用户管理 CLI（bin 入口，M3 新增）
 ├── self-check.ts      # 包装覆盖自检（fail loud）
 ├── *.test.ts          # 单元测试（显式 vitest import）
 └── integration.*.test.ts  # 真实 cordis/webserver/storage 栈集成测试

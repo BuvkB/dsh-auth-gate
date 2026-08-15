@@ -296,7 +296,7 @@ export interface PasswordLoginDeps {
   sessionTtl: number; // 秒
   usersPath: string; // 仅用于"文件缺失"warn 消息（P23）
   loadUsers: () => Promise<UsersLoadResult>; // index.ts 注入 loadUsersFile(usersPath) 闭包
-  verify: (storedHash: string, password: string) => Promise<boolean>; // index.ts 注入 verifyPassword
+  verify: (password: string, storedHash: string) => Promise<boolean>; // 与 verifyPassword 同形，index.ts 直接注入
   limiter: LoginRateLimiter;
   logger: {
     error(message: unknown): void;
@@ -329,8 +329,10 @@ export async function handlePasswordLogin(
    `if (missing && !warnedMissing) { warnedMissing = true; deps.logger.warn("users file not found: " + deps.usersPath + " (all password logins rejected)"); }`
    （`warnedMissing` 为 handlePasswordLogin 模块级 flag——插件单实例，等价进程级一次；P7/P23。）
 5. `const user = users.users.get(username);`
-   `const ok = await deps.verify(user?.passwordHash ?? DUMMY_HASH, password);`（DUMMY_HASH 从
-   `./password.js` import——未知用户时序均匀，P3）。
+   `const ok = await deps.verify(password, user?.passwordHash ?? DUMMY_HASH);`（DUMMY_HASH 从
+   `./password.js` import——未知用户时序均匀，P3。**注意参数顺序与 verifyPassword 同形
+   `(password, storedHash)`**——TS 结构兼容不检查参数名，顺序写反会在真实路径恒 401，实施时
+   已踩并修正）。
 6. `if (!ok || user === undefined || user.disabled) { deps.limiter.recordFailure(ip, username === "" ? undefined : username);`
    → 401 `"invalid credentials"` + no-store + `info("login rejected")`；return。`}`。
 7. `deps.limiter.recordSuccess(ip, username === "" ? undefined : username);`
@@ -511,8 +513,10 @@ M1/M2 测试**全保留且必须原样绿**（`auth-endpoints*.test.ts` 不因 P
    base64url → 全部 false 且不抛。
 5. DUMMY_HASH 已知向量：`verifyPassword("dsh-auth-dummy-password-for-timing-uniformity", DUMMY_HASH) === true`；
    其他口令 → false（DUMMY 口令字面量不是秘密，允许出现在断言）。
-6. 参数演进兼容：手工把 `hashPassword` 产物替换 N 段为合法小值（如 2¹⁴）→ 验证仍按替换值成功
-   （证明按 stored 参数派生，P2）。
+6. 参数演进兼容：手工构造合法旧参数哈希（`scryptSync` 按 N=2¹⁴ 生成，拼成
+   `scrypt$16384$8$1$<salt>$<hash>`）→ 在模块常量 N=2¹⁶ 下 `verifyPassword` 仍成功（证明验证
+   走 **stored 自带参数**而非当前常量；注意 scrypt 的 N 参与派生，**改 N 段必须同时重派生**
+   才成立——原"替换 N 段"写法是错的，实施时已修正为上述构造法）。
 
 **`src/rate-limit.test.ts`**（注入 `now`）—
 

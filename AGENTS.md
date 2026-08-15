@@ -21,6 +21,10 @@ tables).
   shared-token gate). **M2 execution starts by reading `docs/handoff-m2.md`**
   (environment facts, server verification workflow, M1 pitfalls) — a new
   session has no prior context.
+- **M3 executable spec**: `docs/impl-m3.md` (frozen decisions P1–P26 for the
+  password flow: users.yaml + scrypt + rate limiting + `dsh-auth user` CLI).
+  **M3 execution starts by reading `docs/handoff-m2.md`** (environment facts
+  still valid) and finishes by writing `docs/handoff-m3.md` for M4.
 - **Agent skills** (`skills/`, auto-discovered):
   - `dsh-auth-code-review` — review checklist for changes here: enforcement,
     lifecycle, disposal, real-entry-path tests, prose contracts.
