@@ -1,11 +1,16 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
+import { registerAuthEndpoints } from "./auth-endpoints.js";
 import type { Gate } from "./gate.js";
 import { wrapServer, type WrappableServer } from "./guard.js";
+import { PasswordGate } from "./password-gate.js";
+import { registerPasswordEndpoints } from "./password-endpoints.js";
+import { verifyPassword } from "./password.js";
+import { LoginRateLimiter } from "./rate-limit.js";
 import { assertGuarded } from "./self-check.js";
 import { sessionDomainSpec, SessionStore } from "./session-store.js";
 import { safeEqual, TokenGate } from "./token-gate.js";
-import { registerAuthEndpoints } from "./auth-endpoints.js";
+import { defaultUsersFilePath, loadUsersFile } from "./users-file.js";
 
 /** 稳定 Cordis 插件名（host 组合行 id）。 */
 export const name = "dsh-auth";
@@ -14,16 +19,18 @@ export const name = "dsh-auth";
 export const inject = ["webServer"] as const;
 
 export interface AuthConfig {
-  /** 认证流：token（M2）/ password（M3）。M2 只实现 token。 */
+  /** 认证流：token（M2）/ password（M3）。 */
   mode: "token" | "password";
   /** 会话 TTL（秒）。 */
   sessionTtl: number;
   /** 会话 cookie 名。 */
   cookieName: string;
-  /** 共享 token 的 credentials 引用名（环境变量名）。 */
+  /** 共享 token 的 credentials 引用名（环境变量名）；password 模式忽略。 */
   tokenRef: string;
   /** cookie 是否带 `; Secure`（http 测试/开发可关，M7）。 */
   cookieSecure: boolean;
+  /** users.yaml 路径；`""` = 按 P6 解析默认路径。password 模式专用。 */
+  usersFile: string;
 }
 
 export const Config: z<AuthConfig> = z.object({
@@ -36,17 +43,18 @@ export const Config: z<AuthConfig> = z.object({
     .pattern(/^[A-Za-z_][A-Za-z0-9_]*$/)
     .default("DSH_AUTH_TOKEN"),
   cookieSecure: z.boolean().default(true),
+  usersFile: z.string().default(""),
 });
 
 /** 本插件提供的 auth 服务：门（可换流/测试注入）+ 会话层。 */
 export interface AuthService {
   /** storageDomain 缺失时为 undefined（会话不可用但守卫照常挂载）。 */
   sessions: SessionStore | undefined;
-  /** 可写：M2 为 TokenGate；测试注入假门。 */
+  /** 可写：token 模式为 TokenGate、password 模式为 PasswordGate；测试注入假门。 */
   gate: Gate;
 }
 
-/** credentials 服务的结构镜像（spec §3.1）；本文件私有，不导出。 */
+/** credentials 服务的结构镜像（M2 spec §3.1）；本文件私有，不导出。 */
 interface CredentialRefResolver {
   resolve(ref: string): Promise<{ value: string; source: string } | undefined>;
 }
@@ -91,81 +99,132 @@ function makeTokenResolver(
 }
 
 /**
- * 应用 auth 门：mode 校验（fail loud）→ credentials 解析器 → auth 服务（一步成型，
- * TokenGate 的 sessions 访问器闭包自引用 auth）→ 软接会话层 → 包装 webServer 四类入口 →
- * 注册 /auth 端点 → 启动自检（未全覆盖 = fail loud）。
+ * 会话层软接（M1 逻辑不变）：storageDomain 缺失 → error 日志后守卫照常挂载；
+ * 存在 → effect 内 open domain，就绪后把 SessionStore 挂到 auth.sessions。
  */
-export function apply(ctx: Context, config: AuthConfig): void {
-  if (config.mode === "password") {
-    throw new Error("dsh-auth: password flow requires M3 (not implemented in M2)");
-  }
-  const server = ctx.get("webServer") as unknown as WrappableServer | undefined;
-  if (server === undefined) return;
-  const log = ctx.logger("dsh-auth");
-
-  const resolveToken = makeTokenResolver(ctx, config, log);
-
-  const auth: AuthService = {
-    sessions: undefined,
-    gate: new TokenGate({
-      resolveToken,
-      sessions: () => auth.sessions, // 访问器闭包自引用 auth（domain 异步就绪后由 open 回调赋值）
-      cookieName: config.cookieName,
-    }),
-  };
-  ctx.provide("auth", auth);
-
-  // storageDomain 类型来自 @deepseek-ai/dsh-storage-domain 的 cordis 增强。
+function mountSessionDomain(
+  ctx: Context,
+  auth: AuthService,
+  log: { error(message: unknown): void; info(message: unknown): void },
+): (() => () => Promise<void>) | undefined {
   const storageDomain = ctx.get("storageDomain");
   if (storageDomain === undefined) {
     log.error(
       "storage-domain is unavailable: session persistence is disabled (guards stay mounted)",
     );
-  } else {
-    ctx.effect(() => {
-      let closed = false;
-      const opening = storageDomain.open(sessionDomainSpec);
-      const ready = opening.then(
-        (domain) => {
-          if (closed) {
-            void domain.close();
-            return;
-          }
-          auth.sessions = new SessionStore(domain.table("sessions"));
-          log.info("session domain opened: dsh_auth_sessions");
+    return undefined;
+  }
+  return () => {
+    let closed = false;
+    const opening = storageDomain.open(sessionDomainSpec);
+    const ready = opening.then(
+      (domain) => {
+        if (closed) {
+          void domain.close();
+          return;
+        }
+        auth.sessions = new SessionStore(domain.table("sessions"));
+        log.info("session domain opened: dsh_auth_sessions");
+      },
+      (error: unknown) => {
+        log.error(
+          `session domain open failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
+    return async () => {
+      closed = true;
+      await ready.catch(() => undefined);
+      const domain = await opening.catch(() => undefined);
+      await domain?.close();
+    };
+  };
+}
+
+/**
+ * 端点注册（按 mode 二选一，包装后的 register；P26）。**立即执行注册**并返回合并
+ * disposer（作为 ctx.effect 的 callback 返回值；不得再包一层函数——那会被 cordis
+ * 当作 disposer 存起来，注册永不发生，实测 404）。
+ */
+function mountAuthEndpoints(
+  server: WrappableServer,
+  config: AuthConfig,
+  auth: AuthService,
+  resolveToken: (() => Promise<string | undefined>) | undefined,
+  usersPath: string,
+  limiter: LoginRateLimiter,
+  log: {
+    error(message: unknown): void;
+    info(message: unknown): void;
+    warn(message: unknown): void;
+  },
+): () => void {
+  return config.mode === "password"
+    ? registerPasswordEndpoints({
+        register: (route) => server.register(route), // 包装后的 register（增量保险路径）
+        sessions: () => auth.sessions,
+        cookieName: config.cookieName,
+        cookieSecure: config.cookieSecure,
+        sessionTtl: config.sessionTtl,
+        usersPath,
+        loadUsers: () => loadUsersFile(usersPath),
+        verify: verifyPassword,
+        limiter,
+        logger: log,
+      })
+    : registerAuthEndpoints({
+        register: (route) => server.register(route),
+        sessions: () => auth.sessions,
+        cookieName: config.cookieName,
+        cookieSecure: config.cookieSecure,
+        sessionTtl: config.sessionTtl,
+        validateToken: async (token) => {
+          const stored = await (resolveToken ?? (() => Promise.resolve(undefined)))();
+          return stored !== undefined && safeEqual(token, stored);
         },
-        (error: unknown) => {
-          log.error(
-            `session domain open failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        },
-      );
-      return async () => {
-        closed = true;
-        await ready.catch(() => undefined);
-        const domain = await opening.catch(() => undefined);
-        await domain?.close();
-      };
-    }, "dsh-auth: session domain");
+        logger: log,
+      });
+}
+
+/**
+ * 应用 auth 门：mode 分支（token: credentials 解析器 + TokenGate；password: PasswordGate +
+ * usersPath + 限速器）→ auth 服务（一步成型，sessions 访问器闭包自引用 auth）→ 软接会话层 →
+ * 包装 webServer 四类入口 → 注册 /auth 端点（按 mode 二选一）→ 启动自检（fail loud）。
+ * apply 内无 await；password 模式不访问 credentials 服务。
+ */
+export function apply(ctx: Context, config: AuthConfig): void {
+  const server = ctx.get("webServer") as unknown as WrappableServer | undefined;
+  if (server === undefined) return;
+  const log = ctx.logger("dsh-auth");
+
+  const resolveToken = config.mode === "token" ? makeTokenResolver(ctx, config, log) : undefined;
+  const usersPath = config.usersFile === "" ? defaultUsersFilePath() : config.usersFile;
+  const limiter = new LoginRateLimiter();
+
+  const auth: AuthService = {
+    sessions: undefined,
+    gate:
+      config.mode === "password"
+        ? new PasswordGate({ sessions: () => auth.sessions, cookieName: config.cookieName })
+        : new TokenGate({
+            // token 模式下 makeTokenResolver 必返回函数；`??` 兜底仅类型对齐（不可达且 fail-closed）
+            resolveToken: resolveToken ?? (() => Promise.resolve(undefined)),
+            sessions: () => auth.sessions,
+            cookieName: config.cookieName,
+          }),
+  };
+  ctx.provide("auth", auth);
+
+  const sessionDisposer = mountSessionDomain(ctx, auth, log);
+  if (sessionDisposer !== undefined) {
+    ctx.effect(sessionDisposer, "dsh-auth: session domain");
   }
 
   const unwrap = wrapServer(server, () => auth.gate, log);
   ctx.effect(() => unwrap, "dsh-auth: guard unwrap");
 
   ctx.effect(
-    () =>
-      registerAuthEndpoints({
-        register: (route) => server.register(route), // 包装后的 register（增量保险路径）
-        sessions: () => auth.sessions,
-        cookieName: config.cookieName,
-        cookieSecure: config.cookieSecure,
-        sessionTtl: config.sessionTtl,
-        validateToken: async (token) => {
-          const stored = await resolveToken();
-          return stored !== undefined && safeEqual(token, stored);
-        },
-        logger: log,
-      }),
+    () => mountAuthEndpoints(server, config, auth, resolveToken, usersPath, limiter, log),
     "dsh-auth: auth endpoints",
   );
 

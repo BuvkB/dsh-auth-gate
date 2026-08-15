@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { validateNext } from "./auth-common.js";
 import { AUTH_PATH_PREFIX, type HttpHandler } from "./guard.js";
 import { parseCookieHeader } from "./cookie.js";
 import { parseFormBody } from "./form-body.js";
@@ -167,23 +168,6 @@ function handleStatus(deps: AuthEndpointsDeps, req: IncomingMessage, res: Server
   res.setHeader("cache-control", "no-store");
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify({ authenticated }));
-}
-
-/**
- * next 校验（M8 + M20）：单个 `/` 开头、非 `//` 开头、不含 `\`，且不是 `/auth`
- * 或 `/auth/*`（防登录后 302 回环）；否则回落 `/`。
- */
-function validateNext(next: string): string {
-  if (
-    next.startsWith("/") &&
-    !next.startsWith("//") &&
-    !next.includes("\\") &&
-    next !== "/auth" &&
-    !next.startsWith("/auth/")
-  ) {
-    return next;
-  }
-  return "/";
 }
 
 function queryOf(req: IncomingMessage): URLSearchParams {

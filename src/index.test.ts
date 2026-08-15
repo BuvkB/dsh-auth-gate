@@ -17,6 +17,7 @@ function cfg(): AuthConfig {
     cookieName: "dsh_auth",
     tokenRef: "DSH_AUTH_TOKEN",
     cookieSecure: true,
+    usersFile: "",
   };
 }
 function makeFakeServer(): WrappableServer {
@@ -67,10 +68,15 @@ function makeCtx(
     provide(serviceName: string, value: unknown): void {
       provided[serviceName] = value;
     },
-    logger(): { error(message: unknown): void; info(message: unknown): void } {
+    logger(): {
+      error(message: unknown): void;
+      info(message: unknown): void;
+      warn(message: unknown): void;
+    } {
       return {
         error: (message) => logs.push({ level: "error", message }),
         info: (message) => logs.push({ level: "info", message }),
+        warn: (message) => logs.push({ level: "warn", message }),
       };
     },
     effect(callback: () => unknown): void {
@@ -101,11 +107,6 @@ describe("Config", () => {
   });
 });
 describe("apply: mode 与装配", () => {
-  it("throws (fail loud) when mode=password", () => {
-    const server = makeFakeServer();
-    const { ctx } = makeCtx(server, undefined);
-    expect(() => apply(ctx, { ...cfg(), mode: "password" })).toThrow(/password flow requires M3/);
-  });
   it("returns silently when webServer is absent", () => {
     const { ctx, provided } = makeCtx(undefined, undefined);
     expect(() => apply(ctx, cfg())).not.toThrow();

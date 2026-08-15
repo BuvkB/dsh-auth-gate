@@ -10,6 +10,9 @@
   "packageManager": "npm@10.9.3",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "bin": {
+    "dsh-auth": "lib/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -46,6 +49,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
