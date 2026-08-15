@@ -27,21 +27,27 @@
 ## 快速开始
 
 ```sh
-# 1. 打包插件并复制到服务器
-npm pack
-scp dsh-auth-gate-0.0.0.tgz your-server:/tmp/
+# 1. 从 npm 装进你的 dsh profile
+dsh plugin --profile web add dsh-auth-gate
 
-# 2. 在服务器上装进你的 dsh profile
-dsh plugin --profile web add /tmp/dsh-auth-gate-0.0.0.tgz
-
-# 3. 创建管理员账号
+# 2. 创建管理员账号
 printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
-# 4. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里加 dsh-auth 行
+# 3. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里加 dsh-auth 行
 #    （仓库自带现成模板 deploy/cordis.patch.yml，见下方"配置"）
 
-# 5. 重启 dsh，打开你的站点——会先要求登录。
+# 4. 重启 dsh，打开你的站点——会先要求登录。
 ```
+
+## 效果预览
+
+未登录的访客会被带到登录页：
+
+![登录页](docs/demo/login-page.png)
+
+登录后进入你的实例：
+
+![dsh 实例](docs/demo/dashboard.png)
 
 ## 配置
 
