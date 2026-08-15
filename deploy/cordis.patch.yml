@@ -1,6 +1,6 @@
 # 生产 overlay 模板（dsh-auth-gate）
 #
-# 用法：复制到 $DSH_HOME/cordis.patch.yml 并按部署环境调整（见 docs/deployment.md）。
+# 用法：复制到 $DSH_HOME/cordis.patch.yml 并按部署环境调整（见 docs/deployment_zh.md）。
 # 前置条件：dsh-auth-gate 已安装到 profile（dsh plugin --profile web add <tarball>），
 #           $DSH_HOME/auth/users.yaml 已用 `dsh-auth user add` 建好（chmod 600）。
 #

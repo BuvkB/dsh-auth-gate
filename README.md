@@ -84,7 +84,8 @@ Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
   and why auth alone doesn't fix them), and the recommended semi-shell
   topology.
 - [`docs/deployment.md`](docs/deployment.md) — ops checklist, acceptance steps
-  (A–I) and troubleshooting (Chinese).
+  (A–I) and troubleshooting. Chinese version:
+  [`docs/deployment_zh.md`](docs/deployment_zh.md).
 
 ## Requirements
 
