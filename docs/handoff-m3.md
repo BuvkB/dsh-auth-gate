@@ -13,15 +13,18 @@ M3（password 模式：users.yaml + scrypt + 限速 + `dsh-auth user` CLI）已�
 全绿（174 测试）、lib 同批、**真实服务器端到端冒烟全部通过**（登录/会话/Bearer 会话 token/
 WS/429 限速/禁用用户/白名单）。`mode: "token"`（M2）行为零改动、回归绿。
 
-## 2. 仓库与远端状态快照（2026-08-15 午后）
+## 2. 仓库与远端状态快照（2026-08-15 下午，push 后）
 
-- 分支：`development`；本地领先 `origin/development` **7 个提交**（`git log --oneline
-origin/development..HEAD`）：
+- 分支：`development` 已与 `origin/development` 同步（9 个提交全部推送，
+  `git log --oneline origin/development..HEAD` 为空）：
   - M2：`c184dbc`（spec 最终化）→ `bbe39bd`（handoff 快照）→ `aee37b4`（feat 实施）→
     `6a5064e`（lazy credentials 文档）；
-  - M3：`1fac9fe`（spec）→ `db21eac`（feat 实施）→ `e030e75`（docs 契约/handoff）。
-- **全部未推**（`origin/development` 仍停在 M1 的 `4b5f712`；CI 对 M2/M3 未跑）。未获用户
-  指令不 push。
+  - M3：`1fac9fe`（spec）→ `db21eac`（feat 实施）→ `e030e75`（docs 契约/handoff）→
+    `5f049c2`（handoff 快照刷新 + plan 路线图 ✅）→ `04037a9`（部署交付物）。
+- **PR #2 已开**（`development` → `main`，标题 "M2 shared token gate + M3 password login
+  flow..."）：待合并。合并后 `main` 上的 `feat:` 提交会触发 release-please 自动开 **release
+  PR**（版本 bump + CHANGELOG，见 `docs/development.md` Releases）——那是自动化流程，无需
+  手工处理；release PR 合并前不要手工改 `package.json` 版本。
 - M3 实施期间的提交纪律照旧：`lib/` 与 `src/` 同批；`docs:`/`feat:` 分型。
 
 ## 3. M3 实施踩坑清单（新 session 直接规避）
