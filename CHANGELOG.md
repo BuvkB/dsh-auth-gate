@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.2...v0.2.0) (2026-08-15)
+
+
+### Features
+
+* **login-page:** redesign login page with modern card UI ([ec54466](https://github.com/TecFancy/dsh-auth-gate/commit/ec544660df8b3c733c566343bf949a607124a780))
+* **login-page:** redesign login page with modern card UI ([edfe2d8](https://github.com/TecFancy/dsh-auth-gate/commit/edfe2d87c8d2759bab52e0497e98393dc0c0c6d6))
+
 ## [0.1.2](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.1...v0.1.2) (2026-08-15)
 
 
