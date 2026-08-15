@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.3.0...v0.4.0) (2026-08-15)
+
+
+### Features
+
+* align plugin name with package (dsh-auth-gate) ([ee3e436](https://github.com/TecFancy/dsh-auth-gate/commit/ee3e4368db4a1e5f36b3f7e1a33447340f3524b9))
+* align plugin name with package (dsh-auth-gate) ([9d67d60](https://github.com/TecFancy/dsh-auth-gate/commit/9d67d608d59532857f8f8edeedbaae598f0bdea6))
+
 ## [0.3.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.2.0...v0.3.0) (2026-08-15)
 
 
