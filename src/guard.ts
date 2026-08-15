@@ -8,7 +8,7 @@ export const GUARDED: unique symbol = Symbol.for("dsh-auth.guarded");
 /** 登录页路径（拒绝时 302 的目标）。 */
 export const LOGIN_PATH = "/auth/login";
 
-/** auth 公共路径前缀（TokenGate 白名单，M4）。 */
+/** auth 公共路径前缀（两种 gate 的白名单：登录/登出/状态端点免守卫）。 */
 export const AUTH_PATH_PREFIX = "/auth";
 
 export type HttpHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;

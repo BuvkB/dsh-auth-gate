@@ -137,8 +137,9 @@ Versioning is fully automated from conventional commits on `main`
 - Merging that PR creates the git tag + GitHub Release;
 - Never hand-edit `version`, `CHANGELOG.md`, or the manifest — edit them only
   by re-running release-please locally (or let the PR own them);
-- No npm publish step yet (package is private/UNLICENSED); consumers install
-  from git or a local tarball (`npm pack`).
+- When the release PR is merged, the Release workflow (`release.yml`) also
+  publishes to npm (`dsh-auth-gate`, MIT-licensed); consumers can additionally
+  install from git or a local tarball (`npm pack`).
 
 `docs:`/`chore:`/`ci:`/`test:` commits do not trigger a release. 0.x
 semantics: `fix:` → 0.0.x, `feat:` → 0.x.0.

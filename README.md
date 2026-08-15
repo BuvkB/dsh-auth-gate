@@ -84,6 +84,10 @@ Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
 - If `cookieSecure` is `true`, your site must be served over https (browsers
   refuse secure cookies on plain http).
 
+## License
+
+[MIT](./LICENSE)
+
 ## Notes & limitations
 
 - Disabling a user only stops **new** logins; already-signed-in sessions stay
