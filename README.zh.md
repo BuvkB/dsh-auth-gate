@@ -74,9 +74,9 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
 ## 部署
 
-- [反代部署指南](docs/reverse-proxy.zh.md) —— Caddy/nginx 配置、浏览器信任栅栏的坑
+- [反代部署指南](docs/reverse-proxy_zh.md) —— Caddy/nginx 配置、浏览器信任栅栏的坑
   （反代后设置页 `403`，以及为什么只加认证修不了它）、推荐的半外壳拓扑。
-- [docs/deployment.md](docs/deployment.md) —— 运维清单、验收步骤（A–I）与故障诊断。
+- [docs/deployment_zh.md](docs/deployment_zh.md) —— 运维清单、验收步骤（A–I）与故障诊断。
 
 ## 环境要求
 

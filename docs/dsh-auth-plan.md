@@ -1,100 +1,86 @@
-# dsh-auth 可行性规划（v3，威胁模型修订）
+# dsh-auth feasibility plan (v3, threat model revision)
 
-> 目标：让公网部署的 dsh web 具备应用层认证能力，不依赖上游修改即可落地。
-> 状态：核心挂载点已用实时探针实测验证（探针 `authp-1` 已按用户要求 `cordis_undefine` 清理）。
-
----
-
-## 0. 已确认的决策（2026-08-14，v3）
-
-| #   | 决策                                                          | 影响                                                           |
-| --- | ------------------------------------------------------------- | -------------------------------------------------------------- |
-| 1   | **不做多用户/会话隔离**（保护对象是整个实例，而非用户间隐私） | 阶段 3 删除；`subject` 仅作审计；方案显著简化                  |
-| 2   | 会话必须跨重启持久化                                          | 用 storage domain（`dsh-storage-json` 已在组合中），见 §5      |
-| 3   | 无上游 PR 通道                                                | 包装挂载点长期化 → 自检/回归纪律；特权方法仍钉 loopback，见 §7 |
-| 4   | 探针清理                                                      | 已 `cordis_undefine`，无残留                                   |
-
-**分阶段路线（最终版）：**
-
-1. 阶段 1：随机 token 保护（共享口令）；
-2. 阶段 2：真正登录，凭证维护在配置文件中（多条目 = 多个管理员各自的凭证，互相不隔离）；
-3. 阶段 3：OTP（TOTP）加固。
+> Goal: give the publicly deployed dsh web application-layer authentication capability, landable without any upstream modification.
+> Status: core mount points verified in practice via live probe (probe `authp-1` cleaned up with `cordis_undefine` per user request).
 
 ---
 
-## 1. 威胁模型：这个门到底保护什么
+## 0. Confirmed decisions (2026-08-14, v3)
 
-修正后的认知：**auth 门保护的不是"API Key"这一项，而是整个 dsh 实例的单一入口**。未授权者
-一旦通过信任围栏（`--trusted-host`，它只是 DNS-rebinding 防栏，不是认证），可以触及：
+| #   | Decision                                                                                                  | Impact                                                                                                                          |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No multi-user/session isolation** (the protected object is the entire instance, not inter-user privacy) | Phase 3 deleted; `subject` purely for audit; plan greatly simplified                                                            |
+| 2   | Sessions must persist across restarts                                                                     | Use a storage domain (`dsh-storage-json` already in the composition), see §5                                                    |
+| 3   | No upstream PR channel                                                                                    | Wrapping mount points becomes long-term → self-check/regression discipline; privileged methods still pinned to loopback, see §7 |
+| 4   | Probe cleanup                                                                                             | Already `cordis_undefine`d, no residue                                                                                          |
 
-| 资产         | 泄露途径                                                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| API Key 本身 | GUI 的 `credentials.describe` 被 loopback 钉死读不到；但 agent 的 bash 工具可直接 `cat ~/.dsh/.credentials.yaml`（除非文件沙箱拦截） |
-| LLM 额度     | 更现实的主要损失：不必偷 Key，直接开 agent 会话白嫖 API 额度（成本滥用）                                                             |
-| 全部会话历史 | 会话列表/内容 RPC 对所有过围栏的浏览器开放；agent shell 也可读 `sessions/*.jsonl`——可能含 agent 以往读入上下文的秘密                 |
-| 服务器 RCE   | agent 平面 = 任意 shell 执行（standard 预设的 bash 工具），等于服务器 shell 外送                                                     |
+**Phased roadmap (final version):**
 
-**关于工作区的澄清**：workspace 是 GUI 的组织概念，**不是访问控制边界**。所有会话都在同一个
-`DSH_HOME/sessions`，任何过了门的客户端都能看到并打开全部会话（包括他人的）。"客户端先加
-本地工作区"并不能阻止会话互读。若未来需要客户端间隐私，那才是多用户隔离——已决定不做。
-
-**推论**：单门模型（过了门 = 完整访问）与保护目标完全匹配，方案因此最简单；多用户隔离删除。
+1. Phase 1: random token protection (shared passphrase);
+2. Phase 2: real login, credentials maintained in a config file (multiple entries = each admin's own credentials, mutually non-isolated);
+3. Phase 3: OTP (TOTP) hardening.
 
 ---
 
-## 2. 结论
+## 1. Threat model: what this gate actually protects
 
-**可行，且已实测验证。** `webServer` 服务无中间件，但"请求时查表调 handler"的分发模型允许
-Host 插件**无上游改动**地对全部 HTTP 请求与全部 WS 升级做守卫包装。实测证据（探针已清理，
-结论留档）：
+Revised understanding: the **auth gate protects not just the "API Key" item but the single entry point of the entire dsh instance**. An unauthorized party who passes the trust fence (`--trusted-host`, which is only a DNS-rebinding barrier, not authentication) can reach:
 
-- fallback（SPA index）、`/api` 前缀（含动态插件 RPC 通道）、exact 路由、两个 WS 升级
-  （`/api/events.mux`、`/api/events.host`）全部可拦截，放行零扰动；
-- 包装"存量表 + 注册方法"双保险，不受组合行 apply 顺序影响。
+| Asset               | Exposure path                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The API Key itself  | The GUI's `credentials.describe` is pinned to loopback and can't be read; but the agent's bash tool can directly `cat ~/.dsh/.credentials.yaml` (unless blocked by the file sandbox)           |
+| LLM quota           | The more realistic main loss: no need to steal the Key — just open an agent session and freeload the API quota (cost abuse)                                                                    |
+| All session history | Session list/content RPCs are open to every browser that gets past the fence; the agent shell can also read `sessions/*.jsonl` — which may contain secrets agents previously read into context |
+| Server RCE          | The agent plane = arbitrary shell execution (the bash tool of the standard preset), which is the server shell exported outside                                                                 |
 
-实现形态：**静态 npm 包（`dsh-auth`）+ web profile 组合行**（生产）；动态插件仅原型（已排除：
-无 `node:crypto`/`fetch`、重启即失效）。
+**Clarification about workspaces**: the workspace is a GUI organizational concept, **not an access-control boundary**. All sessions live in the same `DSH_HOME/sessions`, and any client that passes the gate can see and open all sessions (including others'). "Adding a local workspace on the client side" cannot stop cross-session reading. If inter-client privacy were ever needed in the future, that would be multi-user isolation — already decided not to do.
 
----
-
-## 3. 现状盘点（要点，详见附录代码位置）
-
-- `webServer` 服务（`@deepseek-ai/dsh-host-webserver`）：`exact`/`prefixes`/`upgrades` 三表 +
-  唯一 `fallback` 席位；分发 exact → 最长前缀 → fallback → 404；重复 `(kind, path)` 抛错；
-  **无中间件概念**。
-- `@deepseek-ai/dsh-client-connection`：前缀路由 `/api`（桥接 `apiProxy`）+ 两个 WS 升级；
-  每请求先过 `isTrustedApiRequest` 信任围栏（防 DNS rebinding / 跨站）——**注释明确"不是认证"**。
-- `PRIVILEGED_METHODS`（17 个方法：`settings.*`、`credentials.*`、`agentPreset.*` 等）用空信任
-  列表钉死 loopback——注释原文："until a real authentication layer exists"。
-- `@deepseek-ai/dsh-host-frontend-static` 独占 fallback 服务 SPA dist。
-- 组合层：web profile 根为空，patch 栈 = bundle patches（dsh-base → dsh-web-app → dsh-deeptutor）
-  → profile 层 → `$DSH_HOME/cordis.patch.yml` → `--patch` 覆盖层；行按 id 覆盖。
-- 全依赖树无任何 auth 包/服务/事件；`/api` interceptor 只能接管命中端点且围栏在它之前 → 不能当门。
+**Corollary**: the single-gate model (past the gate = full access) matches the protection goal exactly, so the plan is therefore the simplest; multi-user isolation is deleted.
 
 ---
 
-## 4. 挂载点：`webServer` 守卫包装
+## 2. Conclusion
 
-### 4.1 原理
+**Feasible, and verified in practice.** The `webServer` service has no middleware, but its dispatch model of "look up the handler in a table per request" lets a Host plugin **with no upstream changes** guard-wrap all HTTP requests and all WS upgrades. Empirical evidence (probe already cleaned up, the conclusion is archived):
 
-在 Host 插件 `apply` 中：
+- fallback (SPA index), the `/api` prefix (including the dynamic-plugin RPC channel), exact routes, and both WS upgrades (`/api/events.mux`, `/api/events.host`) can all be intercepted, with zero perturbation on pass-through;
+- wrapping the "existing table + registration methods" double insurance is unaffected by the order in which composition rows apply.
 
-1. **包装存量**：遍历 `server.exact`/`server.prefixes`/`server.upgrades`，逐项把 `handler` 替换为
-   `guard(原始 handler)`；`server.fallback` 同样包装；
-2. **包装增量**：覆盖实例方法 `register`/`registerUpgrade`/`registerFallback`，未来注册自动进守卫；
-3. **守卫逻辑**拿 `(req, res)`（升级为 `(req, socket, head)`）：公共路径白名单 / 会话校验，
-   放行或自行写 302/401，WS 无效则直接拒绝握手（不进入 `ws` 协商）；
-4. **auth 自己的端点**（登录/回调/登出/状态）用包装前捕获的原始 `register` 注册，避免自拦；
-5. **生命周期可逆**：`ctx.effect` 里还原原始方法与表快照（停用/卸载即撤守卫）。
+Implementation shape: **a static npm package (`dsh-auth`) + a web profile composition row** (production); the dynamic plugin was prototype-only (excluded: no `node:crypto`/`fetch`, invalidates on restart).
 
-### 4.2 骨架（概念代码，静态包内写法）
+---
+
+## 3. Current-state inventory (points; full code locations in the appendix)
+
+- `webServer` service (`@deepseek-ai/dsh-host-webserver`): three tables `exact`/`prefixes`/`upgrades` + a single `fallback` slot; dispatch exact → longest prefix → fallback → 404; duplicate `(kind, path)` throws; **no middleware concept**.
+- `@deepseek-ai/dsh-client-connection`: prefix route `/api` (bridging `apiProxy`) + two WS upgrades; every request first passes the `isTrustedApiRequest` trust fence (against DNS rebinding / cross-site) — **the comment states explicitly "not authentication"**.
+- `PRIVILEGED_METHODS` (17 methods: `settings.*`, `credentials.*`, `agentPreset.*`, etc.) use an empty trust list to pin to loopback — comment original: "until a real authentication layer exists".
+- `@deepseek-ai/dsh-host-frontend-static` exclusively owns the fallback to serve the SPA dist.
+- Composition layer: the web profile root is empty, the patch stack = bundle patches (dsh-base → dsh-web-app → dsh-deeptutor) → profile layer → `$DSH_HOME/cordis.patch.yml` → `--patch` override layer; rows are overridden by id.
+- The entire dependency tree has no auth package/service/event; the `/api` interceptor can only take over hit endpoints and the fence precedes it → it cannot serve as the gate.
+
+---
+
+## 4. Mount point: `webServer` guard wrapping
+
+### 4.1 Principle
+
+In the Host plugin's `apply`:
+
+1. **Wrap the existing**: iterate `server.exact`/`server.prefixes`/`server.upgrades`, replacing each `handler` with `guard(original handler)`; wrap `server.fallback` the same way;
+2. **Wrap the incremental**: override the instance methods `register`/`registerUpgrade`/`registerFallback`, so future registrations automatically go through the guard;
+3. **Guard logic** takes `(req, res)` (for upgrades `(req, socket, head)`): public path whitelist / session validation, either allow or write its own 302/401, and for an invalid WS directly refuse the handshake (never entering `ws` negotiation);
+4. **auth's own endpoints** (login/callback/logout/status) are registered with the original `register` captured before wrapping, to avoid self-blocking;
+5. **Reversible lifecycle**: restore the original methods and table snapshots in `ctx.effect` (guard is withdrawn on deactivation/uninstall).
+
+### 4.2 Skeleton (concept code, written for the static package)
 
 ```js
 export function apply(ctx, config) {
   const server = ctx.webServer; // inject: ['webServer', ...]
   const guard = (kind) => (handler) => async (req, res) => {
     const pathname = String(req.url ?? "/").split("?")[0];
-    const decision = await ctx.auth.decide(req, { kind, pathname }); // auth 服务：白名单/会话/目标
+    const decision = await ctx.auth.decide(req, { kind, pathname }); // auth service: whitelist/session/target
     if (decision === "allow") return handler(req, res);
     if (decision === "redirect") {
       res.writeHead(302, { location: `/auth/login?next=${encodeURIComponent(pathname)}` });
@@ -124,190 +110,170 @@ export function apply(ctx, config) {
   server.register = (r) => orig.register({ ...r, handler: guard(r.kind)(r.handler) });
   server.registerUpgrade = (r) => orig.registerUpgrade({ ...r, handler: guardUpgrade(r.handler) });
   server.registerFallback = (h) => orig.registerFallback(guard("fallback")(h));
-  // auth 公共端点（orig.register）+ 自检 + 还原，见 §7/§8
+  // auth public endpoints (orig.register) + self-check + restore, see §7/§8
 }
 ```
 
-### 4.3 风险与纪律（无上游通道下长期适用）
+### 4.3 Risks and discipline (long-term applicable with no upstream channel)
 
-- 包装依赖 `WebServer` 内部字段与"请求时查表"行为，属非契约接口。**每次 dsh 升级必须回归**。
-- 启动自检：探针式检查四类入口是否被包装（未包装 = 裸奔，启动时报错并写日志）。
-- guard 代码集中在一个模块，未来上游若提供契约中间件，迁移面最小。
+- Wrapping depends on `WebServer` internal fields and the "look up at request time" behavior, which are non-contract interfaces. **Every dsh upgrade must be regressed.**
+- Startup self-check: probe-style check that all four entry classes are wrapped (unwrapped = bare-exposure; error at startup and write log).
+- The guard code is centralized in one module, so if upstream provides contract middleware in the future, the migration surface is minimal.
 
 ---
 
-## 5. 架构设计：门恒定、登录流可插拔
+## 5. Architecture design: gate constant, login flow pluggable
 
-关键设计：**守卫（gate）永远只做一件事**——查公共白名单、查会话 cookie、按目标写 302/401。
-"如何产生会话"是**可插拔的登录流（flow）**，按阶段叠加，不改门：
+Key design: the **guard (gate) always does exactly one thing** — check the public whitelist, check the session cookie, and write 302/401 by target. "How a session is produced" is a **pluggable login flow**, layered by phase, without changing the gate:
 
 ```
-请求 → guard → 白名单? ──是──→ 放行
-              └─否→ 会话 cookie 有效? ──是──→ 放行（subject 挂到请求上下文，仅审计用）
-                          └─否→ HTML 导航 → 302 /auth/login
-                               API/WS    → 401 / 拒握手
+request → guard → whitelist? ──yes──→ allow
+               └─no→ session cookie valid? ──yes──→ allow (subject attached to request context, audit only)
+                           └─no→ HTML navigation → 302 /auth/login
+                                API/WS    → 401 / refuse handshake
 
-登录流（按阶段启用）：
-  阶段1 token flow   : POST /auth/login {token} → 校验共享 token → 发会话
-  阶段2 password flow: POST /auth/login {username, password} → 查 users 文件(哈希) → 发会话
-  阶段3 otp flow     : password 通过后 + TOTP 校验 → 发会话（两段式）
+login flows (enabled per phase):
+  Phase-1 token flow   : POST /auth/login {token} → validate shared token → issue session
+  Phase-2 password flow: POST /auth/login {username, password} → look up users file (hash) → issue session
+  Phase-3 otp flow     : after password passes + TOTP validation → issue session (two-stage)
 ```
 
-- 会话记录带 `subject`（阶段 1 固定 `"token"`，阶段 2 为用户名），**用途是审计**（日志里知道
-  哪个凭证产生的会话），不是为隔离铺路。
-- 登录页由 auth 自服务（自包含 HTML 字符串，无第三方资源）：SPA 在门后，登录页不能依赖 SPA。
-- 浏览器侧所有后续请求自动带 cookie（fetch/WS 由上游客户端发出，我们不改客户端代码）。
+- Session records carry `subject` (fixed `"token"` in phase 1, the username in phase 2), **used for audit** (knowing in logs which credential produced the session), not paving the way for isolation.
+- The login page is self-served by auth (self-contained HTML string, no third-party resources): the SPA sits behind the gate, so the login page must not depend on the SPA.
+- All subsequent browser-side requests carry the cookie automatically (fetch/WS are issued by the upstream client; we don't change client code).
 
 ---
 
-## 6. 分阶段设计
+## 6. Phased design
 
-### 阶段 1：随机 token 保护
+### Phase 1: random token protection
 
-- 部署时生成高熵 token（如 `openssl rand -hex 32`），写入 `.credentials.yaml`（条目名如
-  `DSH_AUTH_TOKEN`），插件配置以 **credential 引用** 声明（`credentials` 服务只认环境变量名，
-  值从 `.credentials.yaml`/env 解析——与 dsh 既有秘密机制一致，配置面永不落值）。
-- 入口：`POST /auth/login`（自包含页面 + 表单）提交 token → 恒时比较 → 发会话 cookie；
-  另支持 `Authorization: Bearer <token>`（curl/脚本友好）直接通过守卫。
-- 会话：§5 的持久化 session + `HttpOnly; Secure; SameSite=Lax; Path=/`。
+- Generate a high-entropy token at deploy time (e.g. `openssl rand -hex 32`), write it into `.credentials.yaml` (entry name e.g. `DSH_AUTH_TOKEN`); the plugin config declares it as a **credential reference** (the `credentials` service only recognizes environment-variable names, resolving the value from `.credentials.yaml`/env — consistent with dsh's existing secret mechanism, the config surface never holds the value).
+- Entry: `POST /auth/login` (self-contained page + form) submits the token → constant-time comparison → issue session cookie; also supports `Authorization: Bearer <token>` (curl/script friendly) to pass the guard directly.
+- Session: §5's persistent session + `HttpOnly; Secure; SameSite=Lax; Path=/`.
 
-### 阶段 2：真正登录 + 配置文件凭证
+### Phase 2: real login + config-file credentials
 
-- 凭证文件：`$DSH_HOME/auth/users.yaml`（自建——settings/credentials 两条缝分别是命名空间/
-  单值模型，装不下用户表）。条目：`username → { passwordHash, totpSecret?, disabled? }`。
-  多条目的语义：**多个管理员各自的登录凭证**，互相完全可见（不做隔离）。
-- 口令哈希：**scrypt（`node:crypto` 内建，M3 实施选用——见 §9 路线图注）**；argon2id
-  （`@node-rs/argon2` 带预编译二进制）与 bcryptjs（纯 JS）为备选。**文件里永不出现明文口令**。
-- 配套管理 CLI：`dsh-auth user add/list/disable`（生成哈希、编辑 users.yaml）——避免手写哈希出错。
-- 登录限速：按 IP + 账号计数，失败指数退避；恒时比较。
+- Credentials file: `$DSH_HOME/auth/users.yaml` (self-created — the settings/credentials seams are a namespace/ single-value model respectively and can't fit a user table). Entry: `username → { passwordHash, totpSecret?, disabled? }`.
+  Multiple entries' semantics: **each admin's own login credential, fully visible to each other** (no isolation).
+- Password hashing: **scrypt (`node:crypto` built-in, chosen for M3 implementation — see §9 roadmap note)**; argon2id (`@node-rs/argon2` with a precompiled binary) and bcryptjs (pure JS) are alternatives. **Plaintext passwords never appear in files**.
+- Companion admin CLI: `dsh-auth user add/list/disable` (generate hash, edit users.yaml) — to avoid hand-writing hashes and getting them wrong.
+- Login rate limiting: count by IP + account, exponential backoff on failure; constant-time comparison.
 
-### 阶段 3：OTP（TOTP）
+### Phase 3: OTP (TOTP)
 
-- RFC 6238 TOTP：`node:crypto` HMAC 即可，静态包内无额外依赖。
-- users.yaml 增加 `totpSecret`；登录两段式：password 通过 → TOTP 挑战页 → 发会话。
-- 配置项：OTP 全局开关、按用户可选、尝试限速（TOTP 窗口 ±1，防重放记录最近验证码）。
+- RFC 6238 TOTP: `node:crypto` HMAC suffices, no extra dependency inside the static package.
+- Add `totpSecret` to users.yaml; two-stage login: password passes → TOTP challenge page → issue session.
+- Config items: OTP global switch, optional per-user, attempt rate limiting (TOTP window ±1, record recent verification codes for replay prevention).
 
-### （已删除）多用户会话隔离
+### (Deleted) multi-user session isolation
 
-不做。理由：威胁模型是"保护整个实例的单一入口"，门内所有人互信；会话互读在单门模型下
-不是问题。若未来真的需要客户端间隐私，需上游配合做会话归属过滤——届时单独立项。
+Not doing it. Reason: the threat model is "protect the single entry of the whole instance", where everyone inside the gate trusts each other; session cross-reading is not a problem in a single-gate model. If inter-client privacy were truly needed in the future, session ownership filtering would need upstream cooperation — a separate project then.
 
 ---
 
-## 7. 无上游 PR 通道的限制
+## 7. Limitations of having no upstream PR channel
 
-| 限制                                     | 影响                                                         | 对策                                                                                                        |
-| ---------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| 包装是**非契约接口**                     | dsh 升级可能改字段名/分发行为 → 静默失效即裸奔               | 启动自检（§4.3）+ 升级回归清单 + 盯 dsh 版本变更                                                            |
-| `PRIVILEGED_METHODS` **仍钉死 loopback** | 认证用户也无法从 GUI 改 settings/credentials（配置只能 SSH） | 接受（单门模型下影响小，反而把"门内人改配置"这条路堵住了）；可选 hacky 开关（守卫改写 Host 头解锁）默认关闭 |
-| 无 auth 事件/中间件                      | 需自建 `auth` 服务名 + 包装                                  | 无影响（宿主平面一行，单实例）                                                                              |
-| 登录页无法用 SPA 渲染                    | 预认证阶段 SPA 不可达                                        | 自包含 HTML 登录页（计划内）；认证后的会话状态/登出按钮可加 client 半边（browser 插件）做进 GUI             |
-| 信任围栏不认 auth                        | `--trusted-host` 仍需配置，两者正交叠加                      | 部署文档注明                                                                                                |
-
----
-
-## 8. 纵深防御与安全要点
-
-**与门正交、专门服务"保护 API Key"目标的措施：**
-
-- [ ] 服务器用**独立低权限 OS 用户**跑 dsh（无 sudo、无其他项目文件）——agent 平面若被攻破，
-      损失被限定在该用户；API Key 泄露影响面也最小
-- [ ] `.credentials.yaml` `chmod 600`；users.yaml 同样 600
-- [ ] 服务器部署的沙箱策略收紧（agent 工具限制在 workspace、不读 `DSH_HOME`）——注意会削弱
-      agent 能力，按需权衡；至少默认不读 `.credentials.yaml`
-- [ ] 会话日志视同**含密材料**（agent 可能把秘密读进过上下文）：备份/共享时同等防护
-
-**门本身的要点：**
-
-- [ ] 会话 token 只存 SHA-256 摘要；256-bit `crypto.randomBytes` 生成
-- [ ] Cookie：`HttpOnly; Secure; SameSite=Lax; Path=/`（Secure 依赖前置 TLS 终结）
-- [ ] 登录成功即换 token（防会话固定）；登出吊销并写盘
-- [ ] 登录限速（IP+账号，指数退避）；TOTP 防重放
-- [ ] 口令 scrypt（node:crypto 内建，M3 已实施），文件零明文
-- [ ] 恒时比较；日志不落 token/口令
-- [ ] fail-closed 纪律：auth 行禁用即裸奔 → 部署验收清单含"auth 行健康"检查
-- [ ] 自包含登录页（无 CDN/第三方资源）
-- [ ] dsh 升级回归：四类入口包装自检 + 登录流程冒烟
+| Limitation                                        | Impact                                                                                        | Countermeasure                                                                                                                                                                    |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wrapping is a **non-contract interface**          | dsh upgrades may change field names/dispatch behavior → silent failure = bare exposure        | Startup self-check (§4.3) + upgrade regression checklist + keep an eye on dsh version changes                                                                                     |
+| `PRIVILEGED_METHODS` **still pinned to loopback** | Even authenticated users can't change settings/credentials from the GUI (config only via SSH) | Accept (small impact under the single-gate model; it even closes the "insiders change config" path); optional hacky switch (guard rewrites the Host header to unlock) default off |
+| No auth events/middleware                         | Must build the `auth` service name + wrapping ourselves                                       | No impact (one line on the host plane, single instance)                                                                                                                           |
+| Login page can't be rendered with the SPA         | SPA unreachable in the pre-auth stage                                                         | Self-contained HTML login page (planned); post-auth session state/logout button can add a client half (browser plugin) into the GUI                                               |
+| Trust fence doesn't know auth                     | `--trusted-host` still needs configuration; the two are orthogonal and stack                  | Note it in the deployment doc                                                                                                                                                     |
 
 ---
 
-## 9. 路线图
+## 8. Defense in depth and security points
 
-| 阶段 | 内容                                                                                | 交付物                                 |
-| ---- | ----------------------------------------------------------------------------------- | -------------------------------------- |
-| M0   | 探针验证挂载点                                                                      | ✅ 完成（探针已清理）                  |
-| M1   | `dsh-auth` 包骨架 + 守卫 + 启动自检 + 持久化会话（storage domain）                  | ✅ 完成：npm 包 host 半边 + profile 行 |
-| M2   | 阶段 1：随机 token 门（credentials 引用 + Bearer + 登录页发 cookie）                | ✅ 完成：可部署的公网最小防护          |
-| M3   | 阶段 2：users.yaml + 口令哈希（**scrypt**，见下注）+ 登录限速 + `dsh-auth user` CLI | ✅ 完成：真正登录                      |
-| M4   | 阶段 3：TOTP 两段式登录 + 配置项                                                    | OTP 加固                               |
-| M5   | 独立反代外壳模式（proxy shell）：自身监听公网 + 反代裸 dsh + Host/Origin 重写       | 规划中（2026-08-15 记录，待排期）      |
+**Measures orthogonal to the gate, specifically serving the "protect the API Key" goal:**
 
-> M3 注：口令哈希按用户拍板选用 `node:crypto` **scrypt**（N=2¹⁶/r=8/p=1，零新增原生依赖；
-> 规格 `docs/impl-m3.md` P1/P2），替代本节初稿中的 argon2id/bcryptjs 候选。
+- [ ] Server runs dsh under a **separate low-privilege OS user** (no sudo, no other project files) — if the agent plane is compromised, the damage is confined to that user; the API-Key leak blast radius is also minimized
+- [ ] `.credentials.yaml` `chmod 600`; users.yaml also 600
+- [ ] Tighten the sandbox policy of server deployment (agent tools restricted to the workspace, not reading `DSH_HOME`) — note this weakens agent capabilities, weigh as needed; at minimum don't read `.credentials.yaml` by default
+- [ ] Treat session logs as **secret-bearing materials** (agents may have read secrets into context): protect them equally when backing up/sharing
 
-### M5（规划）：独立反代外壳模式（standalone proxy shell）
+**Points about the gate itself:**
 
-> 2026-08-15 由生产部署实证驱动立项；排期前先读 `docs/deployment.md` §8（半外壳生产拓扑与
-> 栅栏事实表）。
-
-**背景（实证结论）**：dsh 0.1.0-rc.6 的浏览器信任栅栏把 `settings.*` / `credentials.*` /
-`llm.discoverModels` 等 privileged 方法钉死为仅 loopback（`dsh-client-connection`
-`PRIVILEGED_METHODS`，`--trusted-host` 放不开）。公网反代下这些端点恒 403。实测矩阵：
-
-| 上游 Host                   | Origin        | privileged API |
-| --------------------------- | ------------- | -------------- |
-| `dsh.hi-ruofei.com`（现状） | 任意          | 403            |
-| `127.0.0.1:3080`（重写）    | 匹配 loopback | 200            |
-| `127.0.0.1:3080`（重写）    | 剥离          | 200            |
-| `127.0.0.1:3080`（重写）    | 不匹配        | 403            |
-
-结论：**"让 dsh 以为自己在 loopback"与认证必须由同一层外壳承担**——只加认证壳而不重写
-Host/Origin 无效（栅栏与认证正交）。
-
-**目标**：dsh-auth-gate 增加独立部署形态——以 bare cordis 上下文启动（独立挂载范式见仓库根
-`.serve-login.tmp.mjs`），自身监听公网端口，内置反代到"裸 dsh"（零插件），自动重写
-Host/Origin 头；登录页/会话/限速/Bearer/登出沿用现有 gate 逻辑并覆盖代理入口。
-
-**收益**：
-
-- dsh 实例零插件零耦合；升级 dsh 无守卫兼容性风险（现插件形态每次升级须跑 deployment.md §5 回归）；
-- 设置页/凭证管理公网下完整可用（privileged 403 消失，无需 SSH 隧道）；
-- 外壳独立版本化、独立发布，与插件形态共享 gate/session 代码（需抽象公共层）。
-
-**技术要点**：
-
-- 代理层：cordis `webServer` 注册 catch-all 反代路由（转发 + header 重写）+ upgrade 通道透传（WS 101）；
-- header 规则（已实测）：`Host: 127.0.0.1:<上游端口>` + 剥离 `Origin`（或重写为 loopback
-  origin）；`Sec-Fetch-Site: cross-site` 仍被栅栏拒（保留，纵深防御）；跨站 cookie 由门卫
-  `SameSite=Lax` 兜底；
-- 会话 cookie `Secure` 依赖外壳 TLS 终结（沿用 deployment.md 前置条件）；
-- 形态入口建议：`dsh-auth proxy --upstream 127.0.0.1:3080 --port 8443`（password/token 模式配置不变）。
-
-**验收标准**（沿用 deployment.md §4 精神）：
-
-- 未认证：HTML 302 登录页 / API 401；登录后 `settings.describe`/`credentials.describe`/
-  `settings.update` 200；WS 带 cookie 101、无 cookie 401；
-- 公网浏览器全流程：登录 → 设置页零 transport failure → 聊天流式正常；
-- 裸 dsh 侧无插件、不需要 `--trusted-host`（Host 恒 loopback）。
-
-**依赖/风险**：
-
-- 反代需处理 streaming/SSE/WS/大 body（dsh 请求体上限 167772160 字节）；
-- 代理层是新攻击面：header 重写正确性优先；上游固定（127.0.0.1），SSRF 面小；
-- 与插件形态并存期维护双入口，spec 需先抽象公共 gate/session 层（建议 M5 首步）。
+- [ ] Session tokens stored only as SHA-256 digests; generated with 256-bit `crypto.randomBytes`
+- [ ] Cookie: `HttpOnly; Secure; SameSite=Lax; Path=/` (Secure relies on frontend TLS termination)
+- [ ] Rotate the token on every successful login (anti-session-fixation); logout revokes and writes to disk
+- [ ] Login rate limiting (IP+account, exponential backoff); TOTP replay prevention
+- [ ] Passwords scrypt (node:crypto built-in, implemented in M3), zero plaintext in files
+- [ ] Constant-time comparison; logs never record tokens/passwords
+- [ ] fail-closed discipline: if the auth row is disabled, it's bare exposure → deployment acceptance checklist includes an "auth row health" check
+- [ ] Self-contained login page (no CDN/third-party resources)
+- [ ] dsh upgrade regression: four entry-class wrapping self-check + login flow smoke test
 
 ---
 
-## 10. 附录：关键代码位置
+## 9. Roadmap
 
-| 事实                                    | 位置                                                                                                                                                  |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webServer`：路由表/注册/分发/升级监听  | `node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js`（register L53、registerUpgrade L67、registerFallback L82、match L194、upgrade 监听 L132） |
-| `/api` 前缀路由 + 信任围栏 + WS 注册    | `node_modules/@deepseek-ai/dsh-client-connection/lib/index.js`（isTrustedApiRequest L184、/api 路由 L550-561、WS L566-585）                           |
-| PRIVILEGED_METHODS（loopback 钉死清单） | 同上 L504-520（意图注释 L485-503）                                                                                                                    |
-| SPA fallback 席位                       | `node_modules/@deepseek-ai/dsh-host-frontend-static/lib/index.js` L69-83                                                                              |
-| web 宿主组合（webserver/connection 行） | `node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml`（webserver L115-120、connection L156-163）                                                   |
-| storage domain 用法范式                 | `node_modules/@deepseek-ai/dsh-message-feedback/lib/types/spec.js` + `lib/index.js` L258-267                                                          |
-| credentials 引用模型（环境变量名）      | `node_modules/@deepseek-ai/dsh-credentials/lib/types/index.js`                                                                                        |
-| profile patch 层栈与 bundle 机制        | `dsh/lib/profile-boot-*.js`（composeProfile）                                                                                                         |
-| 本机 web profile bundles                | `C:\Users\Randal_Wang\.dsh\profiles\web\package.json`                                                                                                 |
+| Phase | Content                                                                                                                              | Deliverable                                        |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| M0    | Probe verification of mount points                                                                                                   | ✅ done (probe already cleaned up)                 |
+| M1    | `dsh-auth` package skeleton + guard + startup self-check + persistent sessions (storage domain)                                      | ✅ done: npm package host half + profile row       |
+| M2    | Phase 1: random token gate (credentials reference + Bearer + login page issues cookie)                                               | ✅ done: deployable minimal public protection      |
+| M3    | Phase 2: users.yaml + password hashing (**scrypt**, see note below) + login rate limiting + `dsh-auth user` CLI                      | ✅ done: real login                                |
+| M4    | Phase 3: TOTP two-stage login + config items                                                                                         | OTP hardening                                      |
+| M5    | Standalone reverse-proxy shell mode (proxy shell): listens on public net itself + reverse-proxies a bare dsh + Host/Origin rewriting | planned (recorded 2026-08-15, awaiting scheduling) |
+
+> M3 note: per the user's decision, password hashing uses `node:crypto` **scrypt** (N=2¹⁶/r=8/p=1, zero added native dependency; spec `docs/impl-m3.md` P1/P2), replacing the argon2id/bcryptjs candidates in the earlier draft of this section.
+
+### M5 (planned): standalone reverse-proxy shell mode (standalone proxy shell)
+
+> 2026-08-15 project initiation driven by production-deployment evidence; read `docs/deployment.md` §8 (semi-shell production topology and fence fact table) before scheduling.
+
+**Background (empirical findings)**: dsh 0.1.0-rc.6's browser trust fence pins privileged methods such as `settings.*` / `credentials.*` / `llm.discoverModels` to loopback only (`dsh-client-connection` `PRIVILEGED_METHODS`, which `--trusted-host` can't open up). Behind a public reverse proxy these endpoints are always 403. Measured matrix:
+
+| Upstream Host                 | Origin           | privileged API |
+| ----------------------------- | ---------------- | -------------- |
+| `dsh.hi-ruofei.com` (current) | any              | 403            |
+| `127.0.0.1:3080` (rewritten)  | matches loopback | 200            |
+| `127.0.0.1:3080` (rewritten)  | stripped         | 200            |
+| `127.0.0.1:3080` (rewritten)  | doesn't match    | 403            |
+
+Conclusion: **"making dsh believe it's on loopback" and authentication must both be borne by the same shell layer** — adding only an auth shell without rewriting Host/Origin is ineffective (the fence and auth are orthogonal).
+
+**Goal**: dsh-auth-gate adds a standalone deployment form — launched in a bare cordis context (standalone mount paradigm in repo-root `.serve-login.tmp.mjs`), listening on the public port itself, with a built-in reverse proxy to the "bare dsh" (zero plugins), automatically rewriting the Host/Origin headers; the login page/session/rate limiting/Bearer/logout reuse the existing gate logic and also cover the proxied entry.
+
+**Benefits**:
+
+- The dsh instance has zero plugins and zero coupling; upgrading dsh has no guard-compatibility risk (the current plugin form must run the deployment.md §5 regression on every upgrade);
+- Settings page/credential management fully usable behind public net (privileged 403 disappears, no SSH tunnel needed);
+- The shell is versioned and released independently, sharing the gate/session code with the plugin form (requires abstracting a common layer).
+
+**Technical points**:
+
+- Proxy layer: the cordis `webServer` registers a catch-all reverse-proxy route (forwarding + header rewriting) + upgrade-channel pass-through (WS 101);
+- Header rules (measured): `Host: 127.0.0.1:<upstream port>` + strip `Origin` (or rewrite to the loopback origin); `Sec-Fetch-Site: cross-site` is still rejected by the fence (keep, defense in depth); cross-site cookies are covered by the gate's `SameSite=Lax` fallback;
+- The session cookie's `Secure` relies on the shell's TLS termination (reusing deployment.md's precondition);
+- Form entry suggested: `dsh-auth proxy --upstream 127.0.0.1:3080 --port 8443` (password/token mode config unchanged).
+
+**Acceptance criteria** (echoing deployment.md §4's spirit):
+
+- Unauthenticated: HTML 302 to the login page / API 401; after login `settings.describe`/`credentials.describe`/`settings.update` 200; WS with cookie 101, no cookie 401;
+- Full public-browser flow: login → settings page with zero transport failures → chat streaming works;
+- Bare-dsh side has no plugins and doesn't need `--trusted-host` (Host always loopback).
+
+**Dependencies/risks**:
+
+- The reverse proxy must handle streaming/SSE/WS/large bodies (dsh request-body limit 167772160 bytes);
+- The proxy layer is a new attack surface: header-rewrite correctness is the priority; the upstream is fixed (`127.0.0.1`), so the SSRF surface is small;
+- During coexistence with the plugin form, two entry points must be maintained; the spec first needs to abstract the common gate/session layer (suggested as M5's first step).
+
+---
+
+## 10. Appendix: key code locations
+
+| Fact                                                              | Location                                                                                                                                                  |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `webServer`: route tables/registration/dispatch/upgrade listening | `node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js` (register L53, registerUpgrade L67, registerFallback L82, match L194, upgrade listening L132) |
+| `/api` prefix route + trust fence + WS registration               | `node_modules/@deepseek-ai/dsh-client-connection/lib/index.js` (isTrustedApiRequest L184, /api route L550-561, WS L566-585)                               |
+| PRIVILEGED_METHODS (loopback-pinned list)                         | same file L504-520 (intent comment L485-503)                                                                                                              |
+| SPA fallback slot                                                 | `node_modules/@deepseek-ai/dsh-host-frontend-static/lib/index.js` L69-83                                                                                  |
+| web host composition (webserver/connection rows)                  | `node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml` (webserver L115-120, connection L156-163)                                                        |
+| storage domain usage pattern                                      | `node_modules/@deepseek-ai/dsh-message-feedback/lib/types/spec.js` + `lib/index.js` L258-267                                                              |
+| credentials reference model (environment-variable names)          | `node_modules/@deepseek-ai/dsh-credentials/lib/types/index.js`                                                                                            |
+| profile patch layer stack and bundle mechanism                    | `dsh/lib/profile-boot-*.js` (composeProfile)                                                                                                              |
+| local web profile bundles                                         | `C:\Users\Randal_Wang\.dsh\profiles\web\package.json`                                                                                                     |

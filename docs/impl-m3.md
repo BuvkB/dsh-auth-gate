@@ -1,110 +1,124 @@
-# dsh-auth M3 实施规格（executable spec）
+# dsh-auth M3 Implementation Spec (executable spec)
 
-> 读者：执行实现的编码代理（预期 deepseek v4 flash，**新 session**）。本文档是**决策完备的规格**：
-> 所有判断点已预先关闭，执行者只做翻译，不做设计。
-> 基线：`docs/impl-m2.md`（M2 已交付：守卫 + TokenGate + /auth 端点 + 持久化会话——M3 在其上叠加）。
-> 设计依据：`docs/dsh-auth-plan.md` §5/§6 阶段 2/§8；工程门禁：`docs/development.md`。
-> **本文件是 M3 的唯一权威细则**；与 plan/M1/M2 冲突时以本文件为准。
+> Reader: the coding agent implementing this (expected deepseek v4 flash, **new session**). This document is a
+> **decision-complete spec**: all decision points are already closed; the executor only translates, it does not
+> design.
+> Baseline: `docs/impl-m2.md` (M2 delivered: guard + TokenGate + /auth endpoints + persistent sessions — M3 stacks
+> on top of it).
+> Design basis: `docs/dsh-auth-plan.md` §5/§6 phase 2/§8; engineering gates: `docs/development.md`.
+> **This file is the sole authority for M3 details**; where it conflicts with plan/M1/M2, this file wins.
 >
-> 环境与验证工作流见 `docs/handoff-m2.md`（新 session 必读：服务器访问、沙箱网络限制、M1/M2
-> 踩坑清单——§3/§4/§5 的环境事实对 M3 依然有效）。**禁止自行探索 harness 内部**——需要本文件
-> 之外的事实，停下报告。
+> Environment and verification workflow: see `docs/handoff-m2.md` (mandatory reading for a new session: server
+> access, sandbox network limits, M1/M2 pitfalls list — the §3/§4/§5 environment facts remain valid for M3).
+> **Do not explore the harness internals yourself** — if you need a fact not present in this file, stop and report.
 >
-> 已获用户确认的两个方向性决策（2026-08-15）：口令哈希用 **`node:crypto` scrypt**（零新增
-> 原生依赖）；password 模式下 **Bearer = 会话 token**（非共享 token、非 Basic）。
+> Two directional decisions already confirmed by the user (2026-08-15): password hashing uses **`node:crypto`
+> scrypt** (zero new native dependencies); in password mode **Bearer = session token** (not a shared token, not
+> Basic).
 
 ---
 
-## 1. M3 目标
+## 1. M3 Goals
 
-把阶段 2 的"真正登录"落地，`mode: "password"` 从抛错变为完整可用的密码流：
+Bring phase 2's "real login" to life: `mode: "password"` moves from throwing an error to a complete, usable
+password flow:
 
-- `$DSH_HOME/auth/users.yaml` 维护管理员凭证（scrypt 哈希，**文件里永不出现明文口令**）；
-- `POST /auth/login` 接受 `username` + `password`，恒时验证 → 发持久化会话 cookie（subject =
-  用户名，审计用）；错误口令/未知用户/禁用用户统一 401（防枚举）；
-- 登录限速：按 IP + 账号双桶计数，失败指数退避，锁定返回 `429 + retry-after`；
-- `Authorization: Bearer <会话 token>` 直接通过守卫（会话查表校验，零每请求 KDF）；
-- 配套 CLI：`dsh-auth user add/list/disable`（生成哈希、原子编辑 users.yaml）；
-- `mode: "token"`（M2 行为）**保持 100% 不变**，作为默认流继续可用。
+- `$DSH_HOME/auth/users.yaml` maintains administrator credentials (scrypt hashes, **plaintext passwords never
+  appear in the file**);
+- `POST /auth/login` accepts `username` + `password`, constant-time verification → issues a persistent session
+  cookie (subject = username, for auditing); wrong password / unknown user / disabled user all uniformly return
+  401 (anti-enumeration);
+- login rate limiting: dual buckets counted by IP + account, exponential backoff on failure, lockout returns
+  `429 + retry-after`;
+- `Authorization: Bearer <session token>` passes the guard directly (session lookup validation, zero per-request
+  KDF);
+- accompanying CLI: `dsh-auth user add/list/disable` (generates hashes, atomically edits users.yaml);
+- `mode: "token"` (M2 behavior) **stays 100% unchanged** and remains usable as the default flow.
 
-守卫/会话/自检全部复用 M1/M2，**不改其行为**；本里程碑只加密码流 + CLI。
-
----
-
-## 2. 冻结决策表（M3 增量；M1 的 D1–D16、M2 的 M1–M22 不变）
-
-| #   | 决策           | 冻结值                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | 口令哈希       | `node:crypto` **scrypt**（`promisify(scrypt)`），参数 **N=65536, r=8, p=1, keylen=32**，salt = `randomBytes(16)`，**显式 `maxmem: 128 * 1024 * 1024`**（本机实测：N=2¹⁵ 即超过默认 32 MiB maxmem 直接抛 RangeError，必须显式传）。存储为单字符串 `scrypt$<N>$<r>$<p>$<salt b64url>$<hash b64url>`。单次派生 ~150 ms，登录低频可接受                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| P2  | 验证语义       | `verifyPassword(password, stored)` 解析 stored 的 N/r/p/salt/hash 后按**存储值**的参数重新派生（当前值即 P1，未来调参时旧哈希仍可验证）；N ≤ 2¹⁷、r ≤ 32、p ≤ 4（防 users 文件恶意参数放大内存），salt 段解码 16 字节、hash 段 32 字节，段数/前缀/数字不合法 → `false`（**不抛**）。恒时：`timingSafeEqual`（双方恒 32 字节 Buffer）                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| P3  | DUMMY_HASH     | 冻结字面量：`scrypt$65536$8$1$enp6enp6enp6enp6enp6eg$qhquFN2piwx7cxC6jYN4yREJCPln_GQTzBbLmm4bj1k`（salt = 16 个 0x7a 字节；口令 `dsh-auth-dummy-password-for-timing-uniformity` 仅出现在测试断言中，**不是秘密**）。未知用户名登录时对该常量跑一次真验证（时序均匀，防用户名枚举）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| P4  | users 文件格式 | `$DSH_HOME/auth/users.yaml`：顶层 `{ version: 1, users: { <name>: { passwordHash, totpSecret?, disabled? } } }`。zod 严格校验：顶层与用户条目都 `.strict()`——未知键/`version` 非 1/非法用户名/缺失 `passwordHash` → 文件不可用（503）。`totpSecret`（可选 string）**M3 只解析不使用**（M4）；`disabled` 缺省 `false`                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| P5  | username 约束  | `USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/`（users 文件校验 + CLI 强制）；匹配**大小写敏感**、不做任何规范化。用户名仅作键与审计 subject，不是身份边界                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| P6  | 文件路径       | config 新增 `usersFile: string`，默认 `""`。`""` 时 apply 内解析：`process.env.DSH_HOME` 存在 → `path.join(env, "auth", "users.yaml")`；否则 `path.join(os.homedir(), ".dsh", "auth", "users.yaml")`（与部署侧 `DSH_HOME=~/dsh-smoke` 启动方式一致，handoff §3.2）。显式 config 原样使用。解析规则是本插件自己的，README 注明                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| P7  | 读取语义       | **每次登录尝试重新读文件**（per-operation，CLI 改完立即生效、免重启——与 M2 credentials 语义一致）；**不缓存**。YAML 语法错/schema 错/权限过宽 → 登录 503 `"user store unavailable"` + `log.error`（每次失败都记——登录低频，操作员信号）；文件不存在 → **空用户集** + 进程内首次 `log.warn` 一次（flag 防刷）+ 登录走 401 路径                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| P8  | 文件权限       | 与 credentials 的 0600 纪律一致：POSIX 上加载时 `(stat.mode & 0o077) !== 0` → 文件不可用（503）；**win32 跳过检查**（权限无意义，CI 有 windows-latest）。CLI 写入一律 0600（P19）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| P9  | 认证结果       | 未知用户 → 对 DUMMY_HASH 验证后 401；口令错误 → 401；`disabled: true` → **仍跑一次真验证**（时序均匀）后 401。三者响应体统一 `"invalid credentials"` + `logger.info("login rejected")`（**不含用户名**——防枚举，日志纪律 P23）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| P10 | 登录限速       | 内存态 `LoginRateLimiter`（**重启清零**，README 注明）。常量：`maxFailures=5`、`baseDelaySeconds=30`、`maxDelaySeconds=900`、`windowSeconds=600`；第 n（n≥5）次失败 → 锁定 `min(30 * 2^(n-5), 900)` 秒。锁定期请求 → **429** + `retry-after: <秒>` + text/plain `"too many attempts"` + `logger.info("rate limit exceeded")`，**不增计数、不验证**；锁到期条目清零重计；**失败计数 10 分钟无失败后衰减清零**（滑动窗口，`windowSeconds`）；成功清双桶。IP 取 `req.socket.remoteAddress ?? ""`，**不读 XFF**（可伪造）；`username === ""` 只计 IP 桶；条目上限 10000，超限删最早插入                                                                                                                                                                                                |
-| P11 | mode 语义      | `mode: "password"` 激活 PasswordGate + password 端点（**不再抛错**）；`mode: "token"` 为默认且行为与 M2 **逐字节一致**（`token-gate.ts` 零改动、credentials 接线零改动）。两模式**二选一不可并存**；password 模式不读 credentials 服务、`tokenRef` 配置被忽略                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| P12 | PasswordGate   | `decide` 顺序：1) 白名单 `/auth`、`/auth/*` → allow；2) cookie：`parseCookieHeader` 非空且 `sessions()?.getByToken(...)` 命中 → allow；3) **Bearer = 会话 token**：`Authorization` 匹配 `/^Bearer\s+(.+)$/i` 后 `sessions()?.getByToken(value)` 命中 → allow（**不比对共享 token、不派生哈希**）；4) deny。同步返回（无 await）。HTTP 与 upgrade 同一 `decide`（guard 侧不变）                                                                                                                                                                                                                                                                                                                                                                                                     |
-| P13 | 登录页         | `login-page.ts` 新增 `passwordLoginPageHtml(next, error?)`：username（`<input type="text" name="username" autocomplete="username" required>`）+ password（`<input type="password" name="password" autocomplete="current-password" required autofocus>`）+ hidden next（escape）+ 同款内联样式。`loginPageHtml`（token 版）原样保留。`GET /auth/login` 恒渲染（不查会话、不重定向，M20 一致）                                                                                                                                                                                                                                                                                                                                                                                       |
-| P14 | 登录端点       | `POST /auth/login`（password 模式）字段 `username`/`password`/`next`，复用 `parseFormBody`（415/413 语义与 M2 完全一致）。成功 → `store.create(username, ttl*1000)` + `buildSetCookie` 4 参 + 302 next + `info("session issued")`。失败 → 401 `"invalid credentials"`；`loadUsers` 失败 → 503 `"user store unavailable"` + `error`；`sessions()` undefined → 503 `"session store unavailable"` + `error`（M2 文案）。429 见 P10。全程 no-store                                                                                                                                                                                                                                                                                                                                     |
-| P15 | 会话语义       | subject = **username**（审计：日志知道哪个凭证产生的会话；不是隔离）。**禁用用户只拦新登录**：已发会话在 TTL 内继续有效（README 注明局限；`revokeBySubject` 留 M4 评估，写 `TODO(auth-m4):`）。每次登录都是新会话（防固定，M6 语义延续）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| P16 | 路由模型       | password 模式注册**同样的 4 条**（prefix `/auth` 404 兜底 + 3 exact），由 `index.ts` 按 mode 二选一装配（不同时注册两条相同 path——webserver 会抛重复）。logout/status 行为与 M2 **完全一致**：logout 仅 POST、next 仅 query、无 body 可幂等调用、`Max-Age=0`；status 仅 GET、**只认 cookie**（Bearer 会话 token 不参与——无状态通道不建会话）                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| P17 | validateNext   | 提取到新文件 `src/auth-common.ts` 导出；`auth-endpoints.ts` 删私有实现改 import（**行为不变**，M2 测试守护）；`password-endpoints.ts` 同样 import。M8/M20 校验规则逐字保留                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| P18 | CLI            | `package.json` 增 `"bin": { "dsh-auth": "lib/cli.js" }`；`src/cli.ts` 首行 shebang（tsc 原样保留）。命令面：`user add <name> [--password-stdin] [--disabled]` / `user list` / `user disable <name>`；全局 `--file <path>`（缺省 `defaultUsersFilePath()`）。`add` **要求 `--password-stdin`**（从 stdin 读一行，去尾部 `\r\n`；缺 flag → usage + exit 1）；name 不符 USERNAME_RE / 已存在 → stderr 错误 + exit 1；成功 `out("user <name> added")`。`list` 按用户名排序输出 `<name>` / `<name> (disabled)`（**永不输出哈希**）。`disable` 幂等（已禁用也成功）。未知命令/参数 → usage 到 stderr + exit 1。成功 exit 0。`main(argv, io): Promise<number>` 可注入 io（`out`/`err`/`readLine`）——**禁 `console.*`**，默认 io 用 `process.stdout/stderr.write` + `node:readline` 读一行 |
-| P19 | CLI 写文件     | 经 `writeUsersFile`：`yaml.stringify` 重写**全文件**（注释不保留——README 注明该文件归 CLI 管、勿手写注释）+ 同目录 `<path>.tmp` 写入 + `fs.rename` 原子替换 + mode `0o600`；目录不存在则 `mkdir -p`。序列化时用户按用户名字典序（**显式比较器**——eslint 规则）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| P20 | 依赖变更       | runtime 增 **`yaml@^2.9.0`**（本机锁文件已有 2.9.0 传递依赖，公开 npm 源，`lock:check` 通过）；**无其他依赖变化**（devDependencies 不动；scrypt 是内建）。安装必须 `npm install --registry=https://registry.npmjs.org/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| P21 | CSRF 评估      | **M3 仍不加登录 CSRF token**。评估结论：单门模型无用户间隔离——登录 CSRF 唯一影响是会话 subject 审计值被污染（受害者以攻击者身份使用同一共享实例），无权限边界损失；`SameSite=Lax` + 现代浏览器第三方 Set-Cookie 限制进一步收窄；README 注明残余风险，M4 再评估。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| P22 | 配置面         | M3 唯一新 config = `usersFile`（P6）。限速常量**不配置化**（`rate-limit.ts` 模块常量）；scrypt 参数不配置化。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| P23 | 日志纪律       | 延续 M21：**永不落**口令/用户名（登录相关日志）/哈希/会话 token。password 模式日志事件：`login rejected`、`rate limit exceeded`、`session issued`、`logout`（info）；`user store unavailable: <error.message>`、`session store unavailable`（error）；`users file not found: <path>`（warn，进程内一次）。DUMMY_HASH 与 DUMMY 口令是公开常量不受限；CLI 输出（list、add 确认）不是日志                                                                                                                                                                                                                                                                                                                                                                                             |
-| P24 | 行数预算       | `password-login.ts`（登录 handler 逻辑，≤250）与 `password-endpoints.ts`（路由骨架 + logout/status + 405，≤250）拆两个文件。测试沿 M2 教训拆三个文件（矩阵 §5）。`cli.ts` 单文件 ≤250（usage 文本作文件内常量）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| P25 | 测试参数       | 单测/集成测试一律用**真实 scrypt 参数**（不弱化、不注入假参数）；密码类套件预算 ≤10 次派生（每次 ~150 ms）。429 锁定（30s 起）会污染同实例后续登录——**429 场景用独立 ctx/端口实例**（集成测试单独 describe 起新栈），单测用注入时钟 `now`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| P26 | 装配顺序       | `apply` 内：log → mode 分支（token：`makeTokenResolver` + TokenGate；password：PasswordGate + `usersPath` 解析 + `new LoginRateLimiter()` + `loadUsers`/`verify` 闭包）→ auth 对象一步成型（`sessions: () => auth.sessions` 闭包自引用）+ `provide` → storage 软接（M1 逻辑不动）→ `wrapServer` → 端点注册（按 mode 二选一，包装后的 `server.register`）→ 自检（最后）。apply 内无 await；password 模式**不访问 credentials 服务**                                                                                                                                                                                                                                                                                                                                                 |
+Guard/session/self-check all reuse M1/M2, **their behavior is not changed**; this milestone only adds the password
+flow + CLI.
 
 ---
 
-## 3. 权威契约（M3 新增事实；其余见 impl-m1.md §2 / impl-m2.md §3）
+## 2. Frozen decision table (M3 increments; M1's D1–D16 and M2's M1–M22 unchanged)
 
-### 3.1 `node:crypto` scrypt（本机 Node 24.13.1 实测）
-
-- `scrypt(password, salt, keylen, options)` 回调式；用 `promisify(scrypt)`。
-- **maxmem 实测**：默认 maxmem = 32 MiB；N=32768/r=8 即抛
-  `RangeError: Invalid scrypt params ... memory limit exceeded`——**必须显式 `maxmem`**（P1 冻结
-  128 MiB；N=65536/r=8 需要 64 MiB 工作内存，留余量）。
-- N=65536/r=8/p=1/keylen=32 实测 ~150 ms/次。
-- `timingSafeEqual` 只接受 Buffer/TypedArray（M2 已冻结，scrypt 输出即 Buffer，双方恒 32 字节）。
-- base64url 长度：16 字节 salt → 22 字符；32 字节 hash → 43 字符。存储串总长固定，格式正则
-  `/^scrypt\$65536\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/`（当前参数下的形状断言用）。
-
-### 3.2 `yaml` 包（v2.9.0，公开 npm，已在本仓库锁文件传递依赖中）
-
-- `import { parse, stringify } from "yaml"`；`parse` 返回 `unknown`（不信任输入，一律过 zod 校验）；
-  `stringify` 默认 2 空格缩进、LF。仅用这两个 API，不用 schema/anchors 高级特性。
-- `parse` 对重复键默认**报错抛异常**（YAML 1.2 默认）——正是我们要的严格行为（重复用户名 = 文件
-  不可用）；测试覆盖。
-
-### 3.3 路径与进程环境
-
-- `process.env.DSH_HOME`：部署侧以 `DSH_HOME=~/dsh-smoke <dsh>` 方式启动（handoff §3.2 已验证的
-  机制）；本插件**只读**该变量做 P6 默认路径解析，不探索/不依赖 harness 的任何其他环境事实。
-- `os.homedir()` 兜底（跨平台）；CLI 与插件共享同一个 `defaultUsersFilePath()` 实现
-  （`users-file.ts`），保证 CLI 缺省 `--file` 与插件默认路径一致。
-
-### 3.4 不探索
-
-沿用 M1/M2 纪律：需要本文件未出现的事实（字段、签名、行为）→ 停下报告，不得猜测。
+| #   | Decision               | Frozen value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | Password hash          | `node:crypto` **scrypt** (`promisify(scrypt)`), parameters **N=65536, r=8, p=1, keylen=32**, salt = `randomBytes(16)`, **explicit `maxmem: 128 * 1024 * 1024`** (measured on this machine: N=2¹⁵ already exceeds the default 32 MiB maxmem and throws RangeError directly, so it must be passed explicitly). Stored as a single string `scrypt$<N>$<r>$<p>$<salt b64url>$<hash b64url>`. Single derivation ~150 ms, acceptable for low-frequency login                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| P2  | Verification semantics | `verifyPassword(password, stored)` parses N/r/p/salt/hash from stored, then re-derives using the **stored** parameters (current value is P1; when tuning parameters in the future, old hashes still validate); N ≤ 2¹⁷, r ≤ 32, p ≤ 4 (prevents malicious parameters in a users file from amplifying memory), salt segment decodes to 16 bytes, hash segment to 32 bytes, invalid segment count/prefix/numbers → `false` (**no throw**). Constant-time: `timingSafeEqual` (both sides always 32-byte Buffers)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| P3  | DUMMY_HASH             | Frozen literal: `scrypt$65536$8$1$enp6enp6enp6enp6enp6eg$qhquFN2piwx7cxC6jYN4yREJCPln_GQTzBbLmm4bj1k` (salt = 16 bytes of 0x7a; the password `dsh-auth-dummy-password-for-timing-uniformity` appears only in test assertions and is **not a secret**). For an unknown user login, run one real verification against this constant (timing uniformity, anti-username-enumeration)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| P4  | Users file format      | `$DSH_HOME/auth/users.yaml`: top level `{ version: 1, users: { <name>: { passwordHash, totpSecret?, disabled? } } }`. zod strict validation: both the top level and user entries use `.strict()` — unknown key / `version` not 1 / invalid username / missing `passwordHash` → file unusable (503). `totpSecret` (optional string) is **parsed but not used** in M3 (M4); `disabled` defaults to `false`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| P5  | username constraint    | `USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/` (users file validation + CLI enforcement); matching is **case-sensitive**, no normalization performed. Username is only a key and an audit subject, not an identity boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| P6  | File path              | config adds `usersFile: string`, default `""`. When `""`, resolve inside apply: `process.env.DSH_HOME` exists → `path.join(env, "auth", "users.yaml")`; otherwise `path.join(os.homedir(), ".dsh", "auth", "users.yaml")` (consistent with the deploy-side `DSH_HOME=~/dsh-smoke` startup, handoff §3.2). An explicit config is used as-is. The resolution rule is this plugin's own; note it in the README                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| P7  | Read semantics         | **Re-read the file on every login attempt** (per-operation, CLI changes take effect immediately, no restart needed — consistent with the M2 credentials semantics); **no caching**. YAML syntax error / schema error / overly permissive permissions → login 503 `"user store unavailable"` + `log.error` (logged on every failure — login is low-frequency, operator signal); file absent → **empty user set** + one in-process `log.warn` on first occurrence (flag prevents flooding) + login takes the 401 path                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| P8  | File permissions       | Consistent with the 0600 discipline of credentials: on POSIX, at load time `(stat.mode & 0o077) !== 0` → file unusable (503); **win32 skips the check** (permissions are meaningless there; CI has windows-latest). CLI always writes 0600 (P19)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| P9  | Auth result            | Unknown user → verify against DUMMY_HASH then 401; wrong password → 401; `disabled: true` → **still run one real verification** (timing uniformity) then 401. All three share the response body `"invalid credentials"` + `logger.info("login rejected")` (**no username** — anti-enumeration, log discipline P23)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| P10 | Login rate limiting    | In-memory `LoginRateLimiter` (**reset on restart**, note in README). Constants: `maxFailures=5`, `baseDelaySeconds=30`, `maxDelaySeconds=900`, `windowSeconds=600`; the nth (n≥5) failure → lock for `min(30 * 2^(n-5), 900)` seconds. Request during the lock period → **429** + `retry-after: <seconds>` + text/plain `"too many attempts"` + `logger.info("rate limit exceeded")`, **does not increment counters, does not verify**; on lock expiry the entry is cleared and counted from zero; **failure count decays to zero if no failure occurs for 10 minutes** (sliding window, `windowSeconds`); success clears both buckets. IP is taken from `req.socket.remoteAddress ?? ""`, **XFF is not read** (forgeable); `username === ""` only counts the IP bucket; entry cap 10000, when exceeded delete the earliest inserted                                                                                                                             |
+| P11 | mode semantics         | `mode: "password"` activates PasswordGate + password endpoints (**no longer throws**); `mode: "token"` is the default and behaves **byte-for-byte** the same as M2 (`token-gate.ts` zero changes, credentials wiring zero changes). The two modes are **mutually exclusive, never simultaneous**; password mode does not read the credentials service, and the `tokenRef` configuration is ignored                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| P12 | PasswordGate           | `decide` order: 1) whitelist `/auth`, `/auth/*` → allow; 2) cookie: `parseCookieHeader` non-empty and `sessions()?.getByToken(...)` hits → allow; 3) **Bearer = session token**: `Authorization` matches `/^Bearer\s+(.+)$/i` then `sessions()?.getByToken(value)` hits → allow (**no comparison against the shared token, no hash derivation**); 4) deny. Synchronous return (no await). HTTP and upgrade share the same `decide` (guard side unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| P13 | Login page             | `login-page.ts` adds `passwordLoginPageHtml(next, error?)`: username (`<input type="text" name="username" autocomplete="username" required>`) + password (`<input type="password" name="password" autocomplete="current-password" required autofocus>`) + hidden next (escaped) + the same inline styles. `loginPageHtml` (token version) is preserved as-is. `GET /auth/login` always renders (no session check, no redirect, consistent with M20)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| P14 | Login endpoint         | `POST /auth/login` (password mode) accepts fields `username`/`password`/`next`, reuses `parseFormBody` (415/413 semantics exactly like M2). Success → `store.create(username, ttl*1000)` + `buildSetCookie` 4 args + 302 next + `info("session issued")`. Failure → 401 `"invalid credentials"`; `loadUsers` failure → 503 `"user store unavailable"` + `error`; `sessions()` undefined → 503 `"session store unavailable"` + `error` (M2 wording). 429 see P10. no-store throughout                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| P15 | Session semantics      | subject = **username** (auditing: logs know which credential produced the session; not an isolation boundary). **Disabled users only block new logins**: already-issued sessions remain valid within their TTL (note the limitation in README; `revokeBySubject` is left for M4 evaluation, written as `TODO(auth-m4):`). Every login is a new session (anti-fixation, M6 semantics continue)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| P16 | Route model            | password mode registers **the same 4** (prefix `/auth` 404 fallback + 3 exact), assembled by `index.ts` as a choice of one based on mode (never register two identical paths — webserver would throw on duplicates). logout/status behavior is **exactly identical** to M2: logout is POST-only, next is query-only, invokable without body idempotently, `Max-Age=0`; status is GET-only, **only recognizes the cookie** (Bearer session token does not participate — a stateless channel does not create sessions)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| P17 | validateNext           | Extracted to a new file `src/auth-common.ts` and exported; `auth-endpoints.ts` removes the private implementation and changes to import (**behavior unchanged**, guarded by M2 tests); `password-endpoints.ts` imports it as well. M8/M20 validation rules preserved verbatim                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| P18 | CLI                    | `package.json` adds `"bin": { "dsh-auth": "lib/cli.js" }`; `src/cli.ts` has a shebang first line (tsc preserves it as-is). Command surface: `user add <name> [--password-stdin] [--disabled]` / `user list` / `user disable <name>`; global `--file <path>` (default `defaultUsersFilePath()`). `add` **requires `--password-stdin`** (reads one line from stdin, strips trailing `\r\n`; missing flag → usage + exit 1); name not matching USERNAME_RE / already exists → stderr error + exit 1; success `out("user <name> added")`. `list` outputs `<name>` / `<name> (disabled)` sorted by username (**never outputs hashes**). `disable` is idempotent (succeeds even if already disabled). Unknown command/argument → usage to stderr + exit 1. Success exit 0. `main(argv, io): Promise<number>` with injectable io (`out`/`err`/`readLine`) — **`console.*` forbidden**, default io uses `process.stdout/stderr.write` + `node:readline` to read one line |
+| P19 | CLI file writing       | Via `writeUsersFile`: `yaml.stringify` rewrites the **whole file** (comments are not preserved — note in README that the file is managed by the CLI, don't hand-write comments) + write to `<path>.tmp` in the same directory + `fs.rename` atomic replace + mode `0o600`; `mkdir -p` if the directory does not exist. On serialization, users are ordered lexicographically by username (**explicit comparator** — eslint rule)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| P20 | Dependency changes     | runtime adds **`yaml@^2.9.0`** (this machine's lockfile already has 2.9.0 as a transitive dependency, public npm source, `lock:check` passes); **no other dependency changes** (devDependencies untouched; scrypt is built-in). Install must use `npm install --registry=https://registry.npmjs.org/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| P21 | CSRF evaluation        | **M3 still does not add a login CSRF token.** Evaluation conclusion: the single-gate model has no inter-user isolation — the only impact of login CSRF is that the session subject audit value is polluted (victim uses the same shared instance as the attacker), no permission boundary is lost; `SameSite=Lax` plus modern-browser third-party Set-Cookie restrictions narrow it further; note the residual risk in the README, re-evaluate in M4.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| P22 | Config surface         | The only new M3 config = `usersFile` (P6). Rate-limit constants are **not configurable** (`rate-limit.ts` module constants); scrypt parameters are not configurable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| P23 | Log discipline         | Continuation of M21: **never log** passwords/usernames (login-related logs)/hashes/session tokens. Password-mode log events: `login rejected`, `rate limit exceeded`, `session issued`, `logout` (info); `user store unavailable: <error.message>`, `session store unavailable` (error); `users file not found: <path>` (warn, once per process). DUMMY_HASH and the DUMMY password are public constants, not restricted; CLI output (list, add confirmation) is not logging                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| P24 | Line budget            | `password-login.ts` (login handler logic, ≤250) and `password-endpoints.ts` (route skeleton + logout/status + 405, ≤250) split into two files. Tests split into three files following the M2 lesson (matrix §5). `cli.ts` is a single file ≤250 (usage text as an in-file constant)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| P25 | Test parameters        | Unit/integration tests all use **real scrypt parameters** (no weakening, no fake injected parameters); the password-class suites budget ≤10 derivations (each ~150 ms). 429 lockout (from 30s) pollutes subsequent logins on the same instance — **429 scenarios use a standalone ctx/port instance** (integration tests start a new stack in a separate describe), unit tests use an injected clock `now`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| P26 | Assembly order         | Inside `apply`: log → mode branch (token: `makeTokenResolver` + TokenGate; password: PasswordGate + `usersPath` resolution + `new LoginRateLimiter()` + `loadUsers`/`verify` closures) → auth object formed in one step (`sessions: () => auth.sessions` closure self-reference) + `provide` → storage soft-wiring (M1 logic unchanged) → `wrapServer` → endpoint registration (choose one of two by mode, using the wrapped `server.register`) → self-check (last). No await inside apply; password mode **does not access the credentials service**                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ---
 
-## 4. 文件蓝图
+## 3. Authoritative contracts (new M3 facts; the rest see impl-m1.md §2 / impl-m2.md §3)
 
-每个文件 ≤250 行、函数 ≤80 行、复杂度 ≤15（ESLint error）。M2 文件改动只有三处：
-`auth-endpoints.ts`（P17 import）、`login-page.ts`（新增一个导出）、`index.ts`（P26 装配）。
+### 3.1 `node:crypto` scrypt (measured on this machine with Node 24.13.1)
+
+- `scrypt(password, salt, keylen, options)` is callback-based; use `promisify(scrypt)`.
+- **maxmem measured**: default maxmem = 32 MiB; N=32768/r=8 already throws
+  `RangeError: Invalid scrypt params ... memory limit exceeded` — **must pass explicit `maxmem`** (P1 freezes
+  128 MiB; N=65536/r=8 needs 64 MiB working memory, leaving headroom).
+- N=65536/r=8/p=1/keylen=32 measured ~150 ms/op.
+- `timingSafeEqual` only accepts Buffer/TypedArray (already frozen in M2; scrypt output is a Buffer, both sides
+  always 32 bytes).
+- base64url lengths: 16-byte salt → 22 characters; 32-byte hash → 43 characters. The stored string's total length
+  is fixed; shape regex `/^scrypt\$65536\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/` (for asserting the shape
+  under current parameters).
+
+### 3.2 `yaml` package (v2.9.0, public npm, already a transitive dependency in this repo's lockfile)
+
+- `import { parse, stringify } from "yaml"`; `parse` returns `unknown` (do not trust input, always pass through
+  zod validation); `stringify` defaults to 2-space indent, LF. Use only these two APIs, not schema/anchor advanced
+  features.
+- `parse` **throws an error by default on duplicate keys** (YAML 1.2 default) — exactly the strict behavior we
+  want (duplicate username = file unusable); covered by tests.
+
+### 3.3 Paths and process environment
+
+- `process.env.DSH_HOME`: the deploy side starts with `DSH_HOME=~/dsh-smoke <dsh>` (mechanism verified in handoff
+  §3.2); this plugin **only reads** this variable to resolve the P6 default path, and does not explore or depend on
+  any other harness environment fact.
+- `os.homedir()` fallback (cross-platform); CLI and the plugin share the same `defaultUsersFilePath()`
+  implementation (`users-file.ts`), guaranteeing the CLI's default `--file` and the plugin's default path match.
+
+### 3.4 No exploration
+
+Following the M1/M2 discipline: if you need a fact not present in this file (field, signature, behavior) → stop
+and report; do not guess.
+
+---
+
+## 4. File blueprints
+
+Each file ≤250 lines, function ≤80 lines, complexity ≤15 (ESLint error). M2 file changes are only in three places:
+`auth-endpoints.ts` (P17 import), `login-page.ts` (one new export), `index.ts` (P26 assembly).
 `token-gate.ts` / `cookie.ts` / `form-body.ts` / `guard.ts` / `gate.ts` / `session-store.ts` /
-`self-check.ts` **零改动**。
+`self-check.ts` **zero changes**.
 
-### 4.1 `src/password.ts` —— scrypt 哈希与恒时验证
+### 4.1 `src/password.ts` — scrypt hashing and constant-time verification
 
 ```ts
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
@@ -116,32 +130,33 @@ export const SCRYPT_R = 8;
 export const SCRYPT_P = 1;
 export const SCRYPT_KEYLEN = 32;
 export const SCRYPT_MAXMEM = 128 * 1024 * 1024;
-/** 未知用户登录时的占位哈希（P3）：salt=16×0x7a 的固定常量，验证成本与真用户一致。 */
+/** Placeholder hash for unknown-user logins (P3): a fixed constant with salt=16×0x7a, verification cost equal to a real user. */
 export const DUMMY_HASH =
   "scrypt$65536$8$1$enp6enp6enp6enp6enp6eg$qhquFN2piwx7cxC6jYN4yREJCPln_GQTzBbLmm4bj1k";
 
-/** 生成 `scrypt$<N>$<r>$<p>$<salt b64url>$<hash b64url>`（salt 16 字节随机）。 */
+/** Generate `scrypt$<N>$<r>$<p>$<salt b64url>$<hash b64url>` (salt is 16 random bytes). */
 export async function hashPassword(password: string): Promise<string>;
 
-/** 恒时验证：解析 stored 参数后重派生（P2），格式/参数非法 → false，不抛。 */
+/** Constant-time verification: parse stored parameters and re-derive (P2); invalid format/params → false, no throw. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean>;
 ```
 
-行为约定：`hashPassword` 先 `randomBytes(16)` 再 `scrypt`，拼接用当前常量参数。`verifyPassword`
-先 `stored.split("$")`：6 段、段 0 === `"scrypt"`、N/r/p 为正整数且 N ≤ 2¹⁷、r ≤ 32、p ≤ 4、
-salt/hash 段 base64url 解码后 16/32 字节——任一不满足 → `false`；按**解析出的**参数
-`scrypt(password, salt, 32, { N, r, p, maxmem: SCRYPT_MAXMEM })` 后 `timingSafeEqual`。派生异常
-（内存不足等）→ catch 后 `false`。
+Behavior contract: `hashPassword` first does `randomBytes(16)` then `scrypt`, concatenating with the current
+constant parameters. `verifyPassword` first does `stored.split("$")`: 6 segments, segment 0 === `"scrypt"`, N/r/p
+are positive integers with N ≤ 2¹⁷, r ≤ 32, p ≤ 4, the salt/hash segments decode from base64url to 16/32
+bytes — any failure → `false`; then with the **parsed** parameters run
+`scrypt(password, salt, 32, { N, r, p, maxmem: SCRYPT_MAXMEM })` followed by `timingSafeEqual`. A derivation
+exception (e.g. out of memory) → catch and return `false`.
 
-### 4.2 `src/rate-limit.ts` —— 双桶登录限速
+### 4.2 `src/rate-limit.ts` — dual-bucket login rate limiting
 
 ```ts
 export interface RateLimitOptions {
-  maxFailures?: number; // 默认 5
-  baseDelaySeconds?: number; // 默认 30
-  maxDelaySeconds?: number; // 默认 900
-  windowSeconds?: number; // 默认 600：失败计数衰减窗口（见下）
-  now?: () => number; // 默认 Date.now；测试注入
+  maxFailures?: number; // default 5
+  baseDelaySeconds?: number; // default 30
+  maxDelaySeconds?: number; // default 900
+  windowSeconds?: number; // default 600: failure-count decay window (see below)
+  now?: () => number; // default Date.now; injected in tests
 }
 
 export type RateLimitCheck = { allowed: true } | { allowed: false; retryAfterSeconds: number };
@@ -154,21 +169,23 @@ export class LoginRateLimiter {
 }
 ```
 
-行为约定：
+Behavior contract:
 
-- 内部两个 `Map<string, { failures: number; lockUntil: number; lastFailureAt: number }>`
-  （`byIp` / `byAccount`）；`account === undefined || account === ""` 时只动 IP 桶。
-- `check`：任一桶 `lockUntil > now` → `{ allowed: false, retryAfterSeconds: max(1, ceil((lockUntil-now)/1000)) }`
-  （取两桶最大）；`lockUntil <= now` 且 failures > 0 → 清零（锁到期自然重试）；**失败衰减**：
-  failures > 0 且 `now - lastFailureAt > windowSeconds * 1000` → 清零（1–4 次失败 10 分钟无后续
-  失败即遗忘，防慢泄漏）；同时修剪：删除 `failures === 0` 的条目；总条目数 > 10000 → 删除
-  **最早插入**的（Map 迭代序）直到 ≤ 10000。
-- `recordFailure`：对应桶 `failures++`、`lastFailureAt = now`；若 `failures >= maxFailures` →
-  `lockUntil = now + min(baseDelay * 2 ** (failures - maxFailures), maxDelay) * 1000`。
-- `recordSuccess`：删除对应桶条目。
-- 端点锁定期**不调** `recordFailure`（429 短路，P10）——锁定时长由失败序列决定，不被延长。
+- Internally two `Map<string, { failures: number; lockUntil: number; lastFailureAt: number }>`
+  (`byIp` / `byAccount`); when `account === undefined || account === ""` only the IP bucket is touched.
+- `check`: if either bucket has `lockUntil > now` → `{ allowed: false, retryAfterSeconds: max(1, ceil((lockUntil-now)/1000)) }`
+  (take the max of the two buckets); when `lockUntil <= now` and failures > 0 → clear (lock expiry naturally
+  retries); **failure decay**: failures > 0 and `now - lastFailureAt > windowSeconds * 1000` → clear (1–4 failures
+  with no further failure for 10 minutes are forgotten, preventing slow leakage); simultaneously prune: delete
+  entries with `failures === 0`; if total entries > 10000 → delete the **earliest inserted** (Map iteration order)
+  until ≤ 10000.
+- `recordFailure`: increment `failures` for the bucket, `lastFailureAt = now`; if `failures >= maxFailures` →
+  `lockUntil = now + min(baseDelay * 2 ** (failures - maxFailures), maxDelay) * 1000`.
+- `recordSuccess`: delete the bucket entry.
+- The endpoint does **not** call `recordFailure` during the lock period (429 short-circuit, P10) — the lock duration
+  is determined by the failure sequence and is not extended.
 
-### 4.3 `src/users-file.ts` —— users.yaml 加载/校验/原子写
+### 4.3 `src/users-file.ts` — users.yaml load/validate/atomic write
 
 ```ts
 import { z } from "zod";
@@ -178,7 +195,7 @@ export const USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
 export interface UserRecord {
   passwordHash: string;
-  totpSecret?: string; // M3 解析不使用（M4）
+  totpSecret?: string; // parsed in M3 but not used (M4)
   disabled: boolean;
 }
 
@@ -186,32 +203,32 @@ export interface UsersSnapshot {
   users: Map<string, UserRecord>;
 }
 
-/** users 文件不可用（语法/schema/权限）。message 面向操作员，可落日志。 */
+/** The users file is unusable (syntax/schema/permissions). message is operator-facing, safe to log. */
 export class UsersFileError extends Error {}
 
-/** 加载结果：`missing` 区分"文件不存在"与"文件存在但无用户"（供 warn-once，P7）。 */
+/** Load result: `missing` distinguishes "file absent" from "file present but no users" (for warn-once, P7). */
 export interface UsersLoadResult {
   snapshot: UsersSnapshot;
-  missing: boolean; // ENOENT → true（快照为空）；解析/权限失败 → throw，不走此通道
+  missing: boolean; // ENOENT → true (snapshot empty); parse/permission failure → throw, does not go through this channel
 }
 
-/** P6：DSH_HOME env → ~/.dsh/auth/users.yaml。 */
+/** P6: DSH_HOME env → ~/.dsh/auth/users.yaml. */
 export function defaultUsersFilePath(): string;
 
-/** 每次登录现读（P7）。ENOENT → `{ snapshot: 空, missing: true }`（不抛）；否则 P7/P8 失败语义。 */
+/** Read fresh on every login (P7). ENOENT → `{ snapshot: empty, missing: true }` (no throw); otherwise P7/P8 failure semantics. */
 export async function loadUsersFile(path: string): Promise<UsersLoadResult>;
 
-/** CLI 用：全量序列化 + 原子替换 + 0600（P19）。 */
+/** CLI use: full serialization + atomic replace + 0600 (P19). */
 export async function writeUsersFile(path: string, snapshot: UsersSnapshot): Promise<void>;
 ```
 
-行为约定：
+Behavior contract:
 
-- `loadUsersFile`：`fs.stat` → ENOENT → 返回 `{ snapshot: 空快照, missing: true }`（**不抛**）；
-  POSIX 且 `(mode & 0o077) !== 0` →
-  throw `UsersFileError("users file has insecure permissions: <path>")`；win32 跳过权限检查。
-  `readFile("utf8")` → `parseYaml` → zod 校验。zod schema（v4，`z.object({...}).strict()` 顶层与
-  用户条目都 strict）：
+- `loadUsersFile`: `fs.stat` → ENOENT → return `{ snapshot: empty snapshot, missing: true }` (**no throw**);
+  POSIX and `(mode & 0o077) !== 0` →
+  throw `UsersFileError("users file has insecure permissions: <path>")`; win32 skips the permission check.
+  `readFile("utf8")` → `parseYaml` → zod validation. zod schema (v4, `z.object({...}).strict()` strict at both
+  top level and user entries):
   ```ts
   const userRecordSchema = z
     .object({
@@ -227,15 +244,15 @@ export async function writeUsersFile(path: string, snapshot: UsersSnapshot): Pro
     })
     .strict();
   ```
-  解析/校验失败 → throw `UsersFileError(<yaml 或 zod 的消息前缀 "invalid users file">)`；
-  用户名逐一 `USERNAME_RE` 校验（`superRefine` 或 load 后循环）——非法即 throw。成功后
-  `Map`（`disabled` 补 `false`），返回 `{ snapshot, missing: false }`。yaml parse 抛错（含重复键）
-  → 同样包装为 `UsersFileError`。
-- `writeUsersFile`：`mkdir(dirname, { recursive: true })` → `stringify({ version: 1, users: 对象 })`
-  （用户按用户名字典序，**显式比较器** `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`）→
-  `writeFile(path + ".tmp", text, { mode: 0o600 })` → `rename` → 目标路径。幂等可重复调用。
+  Parse/validation failure → throw `UsersFileError(<prefix "invalid users file" from the yaml or zod message>)`;
+  each username validated against `USERNAME_RE` one by one (`superRefine` or a loop after load) — invalid → throw.
+  On success, build a `Map` (fill in `false` for `disabled`), return `{ snapshot, missing: false }`. A yaml parse
+  error (including duplicate keys) → likewise wrapped as `UsersFileError`.
+- `writeUsersFile`: `mkdir(dirname, { recursive: true })` → `stringify({ version: 1, users: object })`
+  (users in lexicographic order by username, **explicit comparator** `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`) →
+  `writeFile(path + ".tmp", text, { mode: 0o600 })` → `rename` → target path. Idempotent, repeatable.
 
-### 4.4 `src/password-gate.ts` —— password 模式门
+### 4.4 `src/password-gate.ts` — password-mode gate
 
 ```ts
 import type { IncomingMessage } from "node:http";
@@ -245,7 +262,7 @@ import { AUTH_PATH_PREFIX } from "./guard.js";
 import { parseCookieHeader } from "./cookie.js";
 
 export interface PasswordGateOptions {
-  sessions: () => SessionStore | undefined; // M16 同形访问器
+  sessions: () => SessionStore | undefined; // M16-shaped accessor
   cookieName: string;
 }
 
@@ -255,33 +272,35 @@ export class PasswordGate implements Gate {
 }
 ```
 
-`decide` 顺序照 P12 实现（白名单 → cookie 会话 → Bearer 会话 token → deny）；**同步返回**，无
-async、无 KDF、无文件 IO。`sessions()` 返回 undefined 时 cookie 与 bearer 通道都跳过 → deny
-（与 M2 一致：会话层不可用时门恒 deny，白名单除外）。`kind` 参数沿用 `Gate` 接口（password 门
-不使用，签名一致）。
+`decide` order implements P12 (whitelist → cookie session → Bearer session token → deny); **synchronous return**,
+no async, no KDF, no file IO. When `sessions()` returns undefined, both the cookie and bearer channels are skipped
+→ deny (consistent with M2: when the session layer is unavailable the gate always denies, except the whitelist).
+The `kind` parameter follows the `Gate` interface (not used by the password gate, signature consistent).
 
-### 4.5 `src/auth-common.ts` —— 端点共享纯函数
+### 4.5 `src/auth-common.ts` — pure functions shared by endpoints
 
 ```ts
-/** M8+M20 逐字保留：单个 `/` 开头、非 `//`、无 `\`、非 /auth*；否则回落 `/`。 */
+/** M8+M20 preserved verbatim: starts with a single `/`, not `//`, no `\`, not /auth*; otherwise fall back to `/`. */
 export function validateNext(next: string): string;
 ```
 
-仅此一个导出。`auth-endpoints.ts` 删掉私有实现（L176–187），改 `import { validateNext } from "./auth-common.js"`；
-`queryOf`/`methodNotAllowed` 留在各自文件（不提取）。本文件无独立测试文件——由两端点套件覆盖
-（覆盖率达标即可）。
+Only this one export. `auth-endpoints.ts` removes its private implementation (L176–187) and changes to
+`import { validateNext } from "./auth-common.js"`; `queryOf`/`methodNotAllowed` stay in their own files (not
+extracted). This file has no standalone test file — covered by both endpoint suites (coverage reaching the target
+is enough).
 
-### 4.6 `src/login-page.ts` —— 新增 password 变体
+### 4.6 `src/login-page.ts` — new password variant
 
 ```ts
-/** password 模式登录页：username + password 两字段（P13）；next/error 全部 HTML-escape。 */
+/** password-mode login page: username + password two fields (P13); all next/error HTML-escaped. */
 export function passwordLoginPageHtml(next: string, error?: string): string;
 ```
 
-复用文件内 `escapeHtml` 与同款样式块（可提取文件内私有模板函数，但导出只增这一个）。token 版
-`loginPageHtml` **原样保留**。标题与按钮文案 `Sign in`（区别于 token 版 `Unlock`）。
+Reuses the in-file `escapeHtml` and the same style block (an in-file private template function may be extracted,
+but only this one export is added). The token version `loginPageHtml` is **preserved as-is**. Title and button
+text `Sign in` (distinct from the token version's `Unlock`).
 
-### 4.7 `src/password-login.ts` —— POST /auth/login 处理逻辑
+### 4.7 `src/password-login.ts` — POST /auth/login handler logic
 
 ```ts
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -293,10 +312,10 @@ export interface PasswordLoginDeps {
   sessions: () => SessionStore | undefined;
   cookieName: string;
   cookieSecure: boolean;
-  sessionTtl: number; // 秒
-  usersPath: string; // 仅用于"文件缺失"warn 消息（P23）
-  loadUsers: () => Promise<UsersLoadResult>; // index.ts 注入 loadUsersFile(usersPath) 闭包
-  verify: (password: string, storedHash: string) => Promise<boolean>; // 与 verifyPassword 同形，index.ts 直接注入
+  sessionTtl: number; // seconds
+  usersPath: string; // only used for the "file missing" warn message (P23)
+  loadUsers: () => Promise<UsersLoadResult>; // index.ts injects the loadUsersFile(usersPath) closure
+  verify: (password: string, storedHash: string) => Promise<boolean>; // same shape as verifyPassword, injected directly by index.ts
   limiter: LoginRateLimiter;
   logger: {
     error(message: unknown): void;
@@ -305,7 +324,7 @@ export interface PasswordLoginDeps {
   };
 }
 
-/** POST /auth/login（password 模式）。完成全部响应写出（含 415/413/401/429/503/302）。 */
+/** POST /auth/login (password mode). Completes the entire response write (including 415/413/401/429/503/302). */
 export async function handlePasswordLogin(
   deps: PasswordLoginDeps,
   req: IncomingMessage,
@@ -313,36 +332,37 @@ export async function handlePasswordLogin(
 ): Promise<void>;
 ```
 
-流程照此实现（顺序冻结，不得重排）：
+Flow implements this exactly (order frozen, must not be rearranged):
 
-1. `parseFormBody(req)`——带 `status` 的错误（415/413）→ 写对应响应（413 先
-   `res.setHeader("connection", "close")`，M19 复刻）；**不带 `status` 的异常向上抛**。
-2. `username = params.get("username") ?? ""`；`password = params.get("password") ?? ""`；
-   `next = validateNext(params.get("next") ?? "/")`；`ip = req.socket.remoteAddress ?? ""`。
-3. `const check = deps.limiter.check(ip, username === "" ? undefined : username)`；
-   锁定 → `429` + `retry-after: <check.retryAfterSeconds>` + text/plain `"too many attempts"` +
-   no-store + `info("rate limit exceeded")`；**return（不验证、不增计数）**。
+1. `parseFormBody(req)` — error carrying `status` (415/413) → write the corresponding response (for 413 first
+   `res.setHeader("connection", "close")`, replicating M19); **an exception without `status` propagates upward**.
+2. `username = params.get("username") ?? ""`; `password = params.get("password") ?? ""`;
+   `next = validateNext(params.get("next") ?? "/")`; `ip = req.socket.remoteAddress ?? ""`.
+3. `const check = deps.limiter.check(ip, username === "" ? undefined : username)`;
+   locked → `429` + `retry-after: <check.retryAfterSeconds>` + text/plain `"too many attempts"` +
+   no-store + `info("rate limit exceeded")`; **return (no verify, no counter increment)**.
 4. `let users: UsersSnapshot; let missing = false;` `try { const loaded = await deps.loadUsers(); users = loaded.snapshot; missing = loaded.missing; } catch (error) {`
    → 503 `"user store unavailable"` + no-store +
-   `error("user store unavailable: " + (error instanceof Error ? error.message : String(error)))`；
-   **return（系统错误不计失败）**。`}`
+   `error("user store unavailable: " + (error instanceof Error ? error.message : String(error)))`;
+   **return (system error does not count as a failure)**. `}`
    `if (missing && !warnedMissing) { warnedMissing = true; deps.logger.warn("users file not found: " + deps.usersPath + " (all password logins rejected)"); }`
-   （`warnedMissing` 为 handlePasswordLogin 模块级 flag——插件单实例，等价进程级一次；P7/P23。）
+   (`warnedMissing` is a module-level flag of `handlePasswordLogin` — the plugin is a single instance, equivalent
+   to once per process; P7/P23.)
 5. `const user = users.users.get(username);`
-   `const ok = await deps.verify(password, user?.passwordHash ?? DUMMY_HASH);`（DUMMY_HASH 从
-   `./password.js` import——未知用户时序均匀，P3。**注意参数顺序与 verifyPassword 同形
-   `(password, storedHash)`**——TS 结构兼容不检查参数名，顺序写反会在真实路径恒 401，实施时
-   已踩并修正）。
+   `const ok = await deps.verify(password, user?.passwordHash ?? DUMMY_HASH);` (DUMMY_HASH imported from
+   `./password.js` — timing-uniform for unknown users, P3. **Note the argument order is the same shape as
+   `verifyPassword` `(password, storedHash)`** — TS structural compatibility does not check argument names;
+   reversed order would always 401 on the real path, which was hit and corrected during implementation).
 6. `if (!ok || user === undefined || user.disabled) { deps.limiter.recordFailure(ip, username === "" ? undefined : username);`
-   → 401 `"invalid credentials"` + no-store + `info("login rejected")`；return。`}`。
+   → 401 `"invalid credentials"` + no-store + `info("login rejected")`; return. `}`.
 7. `deps.limiter.recordSuccess(ip, username === "" ? undefined : username);`
 8. `const store = deps.sessions();` undefined → 503 `"session store unavailable"` + no-store +
-   `error("login failed: session store unavailable")`；return。
+   `error("login failed: session store unavailable")`; return.
 9. `const { token: sessionToken } = await store.create(username, deps.sessionTtl * 1000);` →
-   `set-cookie`（`buildSetCookie(deps.cookieName, sessionToken, deps.sessionTtl, deps.cookieSecure)`）
-   - 302 `{ location: next }` + no-store + `info("session issued")`。
+   `set-cookie` (`buildSetCookie(deps.cookieName, sessionToken, deps.sessionTtl, deps.cookieSecure)`)
+   - 302 `{ location: next }` + no-store + `info("session issued")`.
 
-### 4.8 `src/password-endpoints.ts` —— password 模式路由骨架
+### 4.8 `src/password-endpoints.ts` — password-mode route skeleton
 
 ```ts
 import { AUTH_PATH_PREFIX, type HttpHandler } from "./guard.js";
@@ -353,92 +373,94 @@ import { validateNext } from "./auth-common.js";
 import { handlePasswordLogin, type PasswordLoginDeps } from "./password-login.js";
 
 export interface PasswordEndpointsDeps extends PasswordLoginDeps {
-  /** 注册路由（index.ts 传入包装后的 server.register；被守卫包装但被 gate 白名单放行）。 */
+  /** Register routes (index.ts passes the wrapped server.register; wrapped by the guard but let through by the gate whitelist). */
   register(route: { kind: "exact" | "prefix"; path: string; handler: HttpHandler }): () => void;
 }
 
-/** 注册 prefix `/auth` 兜底 + 三个 exact 端点（password 模式）；返回合并 disposer。 */
+/** Register prefix `/auth` fallback + three exact endpoints (password mode); return a merged disposer. */
 export function registerPasswordEndpoints(deps: PasswordEndpointsDeps): () => void;
 ```
 
-结构照 `auth-endpoints.ts`（合并 disposer、track 收集）：4 条路由——
+Structure follows `auth-endpoints.ts` (merged disposer, track collection): 4 routes —
 
-- prefix `/auth` → 恒 404 `"not found"` + no-store（P16）。
-- exact `/auth/login`：GET → `validateNext(query.get("next") ?? "/")` + 200 text/html +
-  `passwordLoginPageHtml(next)`（恒渲染）；POST → `handlePasswordLogin(deps, req, res)`；
-  其他 → 405 + `allow: GET, POST`。
-- exact `/auth/logout`：仅 POST（其他 405 + `allow: POST`）——逻辑与 M2 `logout` 逐字一致
-  （next 仅 query、revoke 幂等、`buildSetCookie(name, "", 0, cookieSecure)` 清 cookie、302、
-  `info("logout")`）。
-- exact `/auth/status`：仅 GET（其他 405 + `allow: GET`）——逻辑与 M2 `handleStatus` 逐字一致
-  （只认 cookie，Bearer 不参与）。
+- prefix `/auth` → always 404 `"not found"` + no-store (P16).
+- exact `/auth/login`: GET → `validateNext(query.get("next") ?? "/")` + 200 text/html +
+  `passwordLoginPageHtml(next)` (always renders); POST → `handlePasswordLogin(deps, req, res)`;
+  others → 405 + `allow: GET, POST`.
+- exact `/auth/logout`: POST-only (others 405 + `allow: POST`) — logic verbatim identical to M2 `logout`
+  (next query-only, revoke idempotent, `buildSetCookie(name, "", 0, cookieSecure)` clears the cookie, 302,
+  `info("logout")`).
+- exact `/auth/status`: GET-only (others 405 + `allow: GET`) — logic verbatim identical to M2 `handleStatus`
+  (cookie only, Bearer does not participate).
 
-`methodNotAllowed`/`queryOf`/catch-all handler 在本文件内实现（与 `auth-endpoints.ts` 的对应
-函数**内容一致但各自私有**——重复 ~35 行被接受：token 流已冻结、两流生命周期独立；若 M4 需要
-合并再动）。全部响应 no-store。
+`methodNotAllowed`/`queryOf`/the catch-all handler are implemented inside this file (**content-identical to the
+corresponding functions in `auth-endpoints.ts` but each is private** — ~35 duplicated lines accepted: the token
+flow is frozen and the two flows' lifecycles are independent; merge only if M4 needs it). All responses no-store.
 
-### 4.9 `src/cli.ts` —— dsh-auth 用户管理 CLI
+### 4.9 `src/cli.ts` — dsh-auth user management CLI
 
 ```ts
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
-// users-file / password 模块 import 同 src 惯例（相对 .js 后缀）
+// users-file / password module imports follow the same src convention (relative `.js` suffix)
 
 export interface CliIo {
   out(line: string): void;
   err(line: string): void;
-  readLine(): Promise<string>; // stdin 一行，去尾部 \r\n；EOF → ""
+  readLine(): Promise<string>; // one stdin line, trailing \r\n stripped; EOF → ""
 }
 
-/** 返回进程退出码。所有参数/IO 经 argv/io 注入（可测，禁 console.*）。 */
+/** Return the process exit code. All arguments/IO go through argv/io injection (testable, console.* forbidden). */
 export async function main(argv: string[], io: CliIo): Promise<number>;
 
-// 文件底部入口（保持最后）：
+// Entry point at the file bottom (kept last):
 // if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 //   void main(process.argv.slice(2), defaultIo).then((code) => { process.exitCode = code; });
 // }
 ```
 
-行为约定：
+Behavior contract:
 
-- 用法文本（冻结，两处 usage 共用一份常量）：
+- Usage text (frozen, one shared constant for both usage sites):
   ```
   Usage:
     dsh-auth user add <name> --password-stdin [--disabled] [--file <path>]
     dsh-auth user list [--file <path>]
     dsh-auth user disable <name> [--file <path>]
   ```
-- 参数解析：`--file` 后跟一个值（原样取用，不做路径展开）；`--disabled`、`--password-stdin`
-  为布尔 flag；不认识的 token / 非 `user` 子命令 / 未知子命令 → err(usage) + return 1。
-- `add`：name 必须匹配 `USERNAME_RE`（否则 err + 1）；`--password-stdin` 缺失 → err(usage) + 1；
-  `(await loadUsersFile(file)).snapshot` → 已存在同名 → err(`user <name> already exists`) + 1；
-  `readLine()` 为空 → err(`empty password`) + 1；`hashPassword(pw)` → 加入快照（`disabled` 按
-  flag，默认 false）→ `writeUsersFile` → out(`user <name> added`)。
-- `list`：`(await loadUsersFile(file)).snapshot` → 按用户名字典序（显式比较器）逐行 out(`<name>` /
-  `<name> (disabled)`)。文件缺失（`missing: true`）→ 无输出、exit 0。
-- `disable`：`(await loadUsersFile(file)).snapshot` → 不存在 → err(`user not found`) + 1；
-  置 `disabled: true` → `writeUsersFile` → out(`user <name> disabled`)（已禁用同输出，幂等）。
-- 所有 `loadUsersFile`/`writeUsersFile` 抛错（`UsersFileError` 或 IO）→ err(message) + 1。
-- `defaultIo`：`out = (l) => process.stdout.write(l + "\n")`、err 同 stderr、`readLine` 用
-  `node:readline` 对 `process.stdin` 取一行后 close。
+- Argument parsing: `--file` takes one value (used as-is, no path expansion); `--disabled`, `--password-stdin`
+  are boolean flags; unrecognized token / non-`user` subcommand / unknown subcommand → err(usage) + return 1.
+- `add`: name must match `USERNAME_RE` (otherwise err + 1); `--password-stdin` missing → err(usage) + 1;
+  `(await loadUsersFile(file)).snapshot` → same name already exists → err(`user <name> already exists`) + 1;
+  `readLine()` empty → err(`empty password`) + 1; `hashPassword(pw)` → add to snapshot (`disabled` per
+  flag, default false) → `writeUsersFile` → out(`user <name> added`).
+- `list`: `(await loadUsersFile(file)).snapshot` → in lexicographic order by username (explicit comparator),
+  one line each via out(`<name>` / `<name> (disabled)`). File missing (`missing: true`) → no output, exit 0.
+- `disable`: `(await loadUsersFile(file)).snapshot` → not exist → err(`user not found`) + 1;
+  set `disabled: true` → `writeUsersFile` → out(`user <name> disabled`) (same output when already disabled,
+  idempotent).
+- Any `loadUsersFile`/`writeUsersFile` throw (`UsersFileError` or IO) → err(message) + 1.
+- `defaultIo`: `out = (l) => process.stdout.write(l + "\n")`, err likewise to stderr, `readLine` uses
+  `node:readline` against `process.stdin`, reads one line then closes.
 
-### 4.10 `src/index.ts` —— 装配变更（P26；其余 M1/M2 逻辑不动）
+### 4.10 `src/index.ts` — assembly changes (P26; other M1/M2 logic unchanged)
 
-1. `AuthConfig` 增 `usersFile: string`（注释：`""` = 按 P6 解析默认路径；password 模式专用，
-   token 模式忽略）；`Config` 增 `usersFile: z.string().default("")`。`mode` 的 JSDoc 更新为
-   "token（M2）/ password（M3）"。
-2. **删除** apply 开头的 `mode === "password" → throw`（M2 的 L99–101）。
-3. `resolveToken` 仅 token 模式构造（password 模式不构造、不访问 credentials）：
+1. `AuthConfig` adds `usersFile: string` (comment: `""` = resolve default path per P6; password-mode only,
+   ignored in token mode); `Config` adds `usersFile: z.string().default("")`. `mode`'s JSDoc updated to
+   "token (M2) / password (M3)".
+2. **Remove** the `mode === "password" → throw` at the start of apply (M2's L99–101).
+3. `resolveToken` is only constructed in token mode (not constructed, not accessing credentials, in password mode):
    ```ts
    const resolveToken = config.mode === "token" ? makeTokenResolver(ctx, config, log) : undefined;
    ```
-4. password 分支专属常量（token 模式也计算、无害——`usersPath`/`limiter` 都被第 6 步三元表达式
-   引用，不算未使用变量；`makeTokenResolver` 惰性取服务，password 模式下从未被调用）：
+4. password-branch-specific constants (also computed in token mode, harmless — `usersPath`/`limiter` are both
+   referenced by step 6's ternary, so not unused variables; `makeTokenResolver` lazily fetches the service and is
+   never called in password mode):
    ```ts
    const usersPath = config.usersFile === "" ? defaultUsersFilePath() : config.usersFile;
    const limiter = new LoginRateLimiter();
    ```
-5. `auth` 一步成型（P26；闭包自引用在 decide 时才求值）：
+5. `auth` formed in one step (P26; the self-referential closure is evaluated only at `decide` time):
    ```ts
    const auth: AuthService = {
      sessions: undefined,
@@ -446,7 +468,8 @@ export async function main(argv: string[], io: CliIo): Promise<number>;
        config.mode === "password"
          ? new PasswordGate({ sessions: () => auth.sessions, cookieName: config.cookieName })
          : new TokenGate({
-             // token 模式下 makeTokenResolver 必返回函数；`??` 兜底仅类型对齐（不可达且 fail-closed）
+             // in token mode makeTokenResolver must return a function; the `??` fallback only aligns types
+             // (unreachable and fail-closed)
              resolveToken: resolveToken ?? (async () => undefined),
              sessions: () => auth.sessions,
              cookieName: config.cookieName,
@@ -454,8 +477,8 @@ export async function main(argv: string[], io: CliIo): Promise<number>;
    };
    ctx.provide("auth", auth);
    ```
-6. 端点注册按 mode 二选一（自检仍在端点注册**之后**；token 分支的 `validateToken` 闭包同样用
-   `resolveToken ?? (async () => undefined)` 兜底）：
+6. Endpoint registration chooses one of two by mode (self-check still runs **after** endpoint registration; the
+   token branch's `validateToken` closure likewise uses the `resolveToken ?? (async () => undefined)` fallback):
    ```ts
    ctx.effect(
      () =>
@@ -473,7 +496,7 @@ export async function main(argv: string[], io: CliIo): Promise<number>;
              logger: log,
            })
          : registerAuthEndpoints({
-             // M2 参数逐字保留：register/sessions/cookieName/cookieSecure/sessionTtl/logger 同上
+             // M2 params preserved verbatim: register/sessions/cookieName/cookieSecure/sessionTtl/logger as above
              validateToken: async (token) => {
                const stored = await (resolveToken ?? (async () => undefined))();
                return stored !== undefined && safeEqual(token, stored);
@@ -482,257 +505,276 @@ export async function main(argv: string[], io: CliIo): Promise<number>;
      "dsh-auth: auth endpoints",
    );
    ```
-7. storage 软接、`wrapServer`、自检：**零改动**（顺序保持：storage → wrap → endpoints → self-check）。
+7. storage soft-wiring, `wrapServer`, self-check: **zero changes** (order preserved: storage → wrap → endpoints →
+   self-check).
 
-### 4.11 `package.json` / 文档
+### 4.11 `package.json` / documentation
 
-- `dependencies` 增 `"yaml": "^2.9.0"`（排序按既有字母序）；顶层增
-  `"bin": { "dsh-auth": "lib/cli.js" }`。`files: ["lib"]` 已含 CLI 产物；`main`/`exports` 不动。
-- `README.md` 新增一节（消费者契约）：`mode: "password"` 配置、users 文件格式与权限（0600、
-  归 CLI 管）、CLI 用法、token → password 迁移说明、已知局限（限速内存态重启清零；禁用用户
-  不吊销已发会话；无 CSRF token 的残余风险；Bearer 会话 token 语义；XFF 不信任）。
-- `docs/development.md` 的 `## Structure` 树按 §4 新文件更新。
-- `AGENTS.md` 增两行指针：M3 规格 `docs/impl-m3.md` + 交接 `docs/handoff-m3.md`（后者由执行
-  session 收尾时写，见 DoD 6）。
+- `dependencies` adds `"yaml": "^2.9.0"` (ordered by the existing alphabetical order); the top level adds
+  `"bin": { "dsh-auth": "lib/cli.js" }`. `files: ["lib"]` already includes the CLI output; `main`/`exports`
+  unchanged.
+- `README.md` adds a section (consumer contract): `mode: "password"` configuration, users file format and
+  permissions (0600, managed by the CLI), CLI usage, token → password migration notes, known limitations
+  (rate limiting is in-memory and resets on restart; disabled users do not revoke already-issued sessions; residual
+  risk without a CSRF token; Bearer session token semantics; XFF is not trusted).
+- `docs/development.md`'s `## Structure` tree updated per the §4 new files.
+- `AGENTS.md` adds two-pointer lines: the M3 spec `docs/impl-m3.md` + the handoff `docs/handoff-m3.md` (the latter
+  written by the execution session when wrapping up; see DoD 6).
 
 ---
 
-## 5. 测试矩阵
+## 5. Test matrix
 
-M1/M2 测试**全保留且必须原样绿**（`auth-endpoints*.test.ts` 不因 P17 改动而变——validateNext
-行为不变）。`src/index.test.ts` 按 §4.10 适配。新增（全部显式 vitest import；大套件按 describe
-拆文件，每个 ≤250 行）：
+M1/M2 tests **all preserved and must stay green unchanged** (`auth-endpoints*.test.ts` does not change as a result
+of P17 — validateNext behavior is unchanged). `src/index.test.ts` adapts per §4.10. New tests (all explicit vitest
+imports; large suites split into files by describe, each ≤250 lines):
 
 **`src/password.test.ts`** —
 
-1. `hashPassword` 输出匹配 `/^scrypt\$65536\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/`；
-   两次调用 salt 不同（串不等）。
-2. roundtrip：`verifyPassword(pw, await hashPassword(pw)) === true`。
-3. 错口令 → false；空串口令 hash/verify 正常（hash("") 可验证）。
-4. `verifyPassword` 坏输入全分支：非 6 段、前缀错、N/r/p 非数字、N > 2¹⁷、salt 段长度错、非法
-   base64url → 全部 false 且不抛。
-5. DUMMY_HASH 已知向量：`verifyPassword("dsh-auth-dummy-password-for-timing-uniformity", DUMMY_HASH) === true`；
-   其他口令 → false（DUMMY 口令字面量不是秘密，允许出现在断言）。
-6. 参数演进兼容：手工构造合法旧参数哈希（`scryptSync` 按 N=2¹⁴ 生成，拼成
-   `scrypt$16384$8$1$<salt>$<hash>`）→ 在模块常量 N=2¹⁶ 下 `verifyPassword` 仍成功（证明验证
-   走 **stored 自带参数**而非当前常量；注意 scrypt 的 N 参与派生，**改 N 段必须同时重派生**
-   才成立——原"替换 N 段"写法是错的，实施时已修正为上述构造法）。
+1. `hashPassword` output matches `/^scrypt\$65536\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/`;
+   two calls produce different salts (strings unequal).
+2. roundtrip: `verifyPassword(pw, await hashPassword(pw)) === true`.
+3. wrong password → false; empty-string password hashes/verifies normally (`hash("")` is verifiable).
+4. `verifyPassword` all bad-input branches: not 6 segments, wrong prefix, N/r/p not numeric, N > 2¹⁷, wrong salt
+   segment length, invalid base64url → all false and no throw.
+5. DUMMY_HASH known vector: `verifyPassword("dsh-auth-dummy-password-for-timing-uniformity", DUMMY_HASH) === true`;
+   other passwords → false (the DUMMY password literal is not a secret, allowed in assertions).
+6. parameter-evolution compatibility: manually construct a valid old-parameter hash (`scryptSync` generated at
+   N=2¹⁴, assembled as `scrypt$16384$8$1$<salt>$<hash>`) → `verifyPassword` still succeeds under the module constant
+   N=2¹⁶ (proving verification uses the **parameters carried by stored** rather than the current constants; note
+   that scrypt's N participates in derivation, so **changing the N segment requires re-deriving at the same time**
+   for validity — the original "replace the N segment" approach was wrong and was corrected in implementation to the
+   construction method above).
 
-**`src/rate-limit.test.ts`**（注入 `now`）—
+**`src/rate-limit.test.ts`** (injected `now`) —
 
-1. 前 4 次失败 → check 恒 allowed。
-2. 第 5 次失败后 check → locked，`retryAfterSeconds === 30`。
-3. 第 6 次失败后 → 60；增长到 900 封顶（多打几次断言封顶）。
-4. 锁定期 check locked（不再 recordFailure）。
-5. 时钟越过 lockUntil → check allowed 且计数已清零（失败重新从 1 计）。
-6. `recordSuccess` 后 check allowed、计数清零。
-7. IP 桶与账号桶独立：同 IP 不同账号失败互不锁定对方；不同 IP 同一账号被账号桶锁定。
-8. `account: undefined`/`""` 只动 IP 桶。
-9. 衰减与修剪：注入 now——3 次失败后推进时钟 10 分钟 → check 清零且条目被删（后续 check 观察
-   不到计数）；条目数超 10000 删最早——上限是模块常量不导出，测试用 10001 个**互异 key** 各
-   `recordFailure` 一次（failures=1，不会被普通修剪删掉）灌满后调一次 `check`，断言 Map 大小
-   回落到 10000 且最早插入的 key 已被淘汰（各 ~几 ms，可行）。
+1. First 4 failures → check always allowed.
+2. After the 5th failure check → locked, `retryAfterSeconds === 30`.
+3. After the 6th failure → 60; grows to cap at 900 (call a few more times to assert the cap).
+4. During the lock period check is locked (no further `recordFailure`).
+5. Clock passes `lockUntil` → check allowed and counters cleared (failures restart from 1).
+6. After `recordSuccess` check allowed, counters cleared.
+7. IP bucket and account bucket are independent: different accounts failing on the same IP do not lock each other;
+   the same account on different IPs is locked by the account bucket.
+8. `account: undefined`/`""` only touches the IP bucket.
+9. decay and pruning: injected now — after 3 failures advance the clock 10 minutes → check clears and the entry is
+   deleted (the count is not observable on subsequent checks); when the entry count exceeds 10000 the earliest is
+   deleted — the cap is a module constant not exported, so use 10001 **distinct keys**, each `recordFailure` once
+   (failures=1, so ordinary pruning will not delete them), then call `check` once and assert the Map size falls
+   back to 10000 and the earliest-inserted key has been evicted (each a few ms, feasible).
 
-**`src/users-file.test.ts`**（`mkdtemp` 临时目录；`it.skipIf(process.platform === "win32")` 的
-用例用 vitest 条件跳过）—
+**`src/users-file.test.ts`** (`mkdtemp` temp directory; cases with `it.skipIf(process.platform === "win32")` use
+vitest conditional skip) —
 
-1. `defaultUsersFilePath`：`vi.stubEnv("DSH_HOME", tmp)` → 拼出 `<tmp>/auth/users.yaml`；
-   无 env → `path.join(os.homedir(), ".dsh", "auth", "users.yaml")`（断言前缀 homedir；测试后
-   `vi.unstubAllEnvs()`）。
-2. load：合法文件（两个用户，一个带 totpSecret/disabled）→ Map 内容正确、disabled 缺省 false。
-3. 文件不存在 → `{ snapshot: 空 Map, missing: true }`（不抛）；存在且合法 → `missing: false`。
-4. 坏 YAML（语法）→ `UsersFileError`；重复键 YAML → `UsersFileError`。
-5. schema 错：version 非 1、未知顶层键、未知用户字段、缺失 passwordHash、非法用户名、totpSecret
-   非字符串 → 全部 `UsersFileError`。
-6. 权限过宽（`writeFileSync` 后 `chmodSync(0o644)`）→ `UsersFileError`（POSIX only）。
-7. write：快照 → 文件内容精确（yaml 结构、用户名字典序、`disabled: true` 显式）；mode 0600
-   （`statSync` 断言，POSIX only）；`.tmp` 残留不存在；目录不存在时自动创建。
+1. `defaultUsersFilePath`: `vi.stubEnv("DSH_HOME", tmp)` → assembles `<tmp>/auth/users.yaml`;
+   no env → `path.join(os.homedir(), ".dsh", "auth", "users.yaml")` (assert homedir prefix; afterwards
+   `vi.unstubAllEnvs()`).
+2. load: a valid file (two users, one with totpSecret/disabled) → Map contents correct, `disabled` defaults to
+   false.
+3. File absent → `{ snapshot: empty Map, missing: true }` (no throw); present and valid → `missing: false`.
+4. Bad YAML (syntax) → `UsersFileError`; duplicate-key YAML → `UsersFileError`.
+5. schema errors: version not 1, unknown top-level key, unknown user field, missing passwordHash, invalid
+   username, totpSecret not a string → all `UsersFileError`.
+6. overly permissive permissions (`writeFileSync` then `chmodSync(0o644)`) → `UsersFileError` (POSIX only).
+7. write: snapshot → file contents exact (yaml structure, lexicographic usernames, `disabled: true` explicit);
+   mode 0600 (`statSync` assert, POSIX only); no `.tmp` residual; directory auto-created when absent.
 
-**`src/password-gate.test.ts`**（fake req headers + fake sessions（MemTable 思路复用））—
+**`src/password-gate.test.ts`** (fake req headers + fake sessions (reusing the MemTable idea)) —
 
-1. 白名单：`/auth`、`/auth/login`、`/auth/whatever` → allow（无凭证）。
-2. cookie 通道：有效会话 → allow；未知/过期/revoked token → deny；cookie 头缺失 → deny。
-3. Bearer 通道：`Authorization: Bearer <会话 token>` → allow；未知 token → deny；`bearer` 小写
-   前缀可接受；带前缀格式错误 → deny。
-4. `sessions: () => undefined`：cookie 与 bearer 都跳过 → deny（白名单除外）。
-5. 无凭证 → deny。返回值为同步 `"allow" | "deny"`（非 Promise）。
+1. whitelist: `/auth`, `/auth/login`, `/auth/whatever` → allow (no credentials).
+2. cookie channel: valid session → allow; unknown/expired/revoked token → deny; cookie header absent → deny.
+3. Bearer channel: `Authorization: Bearer <session token>` → allow; unknown token → deny; lowercase `bearer`
+   prefix acceptable; malformed prefix format → deny.
+4. `sessions: () => undefined`: both cookie and bearer skipped → deny (except the whitelist).
+5. no credentials → deny. Return value is the synchronous `"allow" | "deny"` (not a Promise).
 
-**`src/password-endpoints.test.ts`**（fake register/limiter/loadUsers/verify/sessions；按行数拆三
-文件：`password-endpoints.test.ts` 注册形状/GET login/logout/status，
-`password-endpoints.login.test.ts` POST login，`password-endpoints.methods.test.ts`
-405/兜底/415/413/页面 escape——矩阵合并描述）—
+**`src/password-endpoints.test.ts`** (fake register/limiter/loadUsers/verify/sessions; split into three files by
+line count: `password-endpoints.test.ts` for registration shape/GET login/logout/status,
+`password-endpoints.login.test.ts` for POST login, `password-endpoints.methods.test.ts` for
+405/fallback/415/413/page escaping — the matrix below is the merged description) —
 
-1. 注册形状：4 条——prefix `/auth`、exact `/auth/login`、`/auth/logout`、`/auth/status`。
-2. GET login：200 + HTML 含 `<form`、`name="username"`、`name="password"`；hidden next escape
-   （`next="/x?a=1&b=2"` → `&amp;`）；已有有效会话也恒 200 渲染（M20 一致）。
-3. POST login 成功：fake verify true → 302 location=next + set-cookie 精确串（secure=true/false
-   两态）+ `sessions().create` 被调（subject = username、ttl = sessionTtl*1000）+
-   `limiter.recordSuccess` 被调 + `info("session issued")`。
-4. POST login 失败：verify false → 401 `"invalid credentials"` + `info("login rejected")` +
-   `recordFailure` 被调、无会话创建；未知用户（loadUsers 不含该名）→ verify 收到 **DUMMY_HASH**
-   - 401；禁用用户 → verify 收到该用户真哈希 + 401（P9：三态统一）。
-5. POST login 429：limiter 预置 locked → 429 + `retry-after` 数值 + `info("rate limit exceeded")`；
-   **verify 未被调**（锁定期不验证）。
-6. POST login 503：fake loadUsers reject → 503 `"user store unavailable"` + error 日志 + 不计
-   失败；`sessions()` undefined → 503 `"session store unavailable"`。
-   6b. POST login 文件缺失：fake loadUsers 返回 `{ snapshot: 空, missing: true }` → 401
-   `"invalid credentials"`（空用户集）+ **首次** `warn("users file not found: ...")` 一次；
-   第二次登录不再重复 warn（模块级 flag）。
-7. POST login next 校验：`//evil.com` → `/`；`/ok/path` → 原样；`/auth/login`、`/auth/x` → `/`
-   （M20 回环防护沿用）。
-8. POST login 空 username：只动 IP 桶（fake limiter 断言 account 参数 undefined）；成功路径
-   username 非空 → account 参数 = username。
-9. POST logout：revoke 被调 + set-cookie 含 `Max-Age=0` + 302；next 仅 query；无 body/无
-   content-type 可用；cookie 缺失也 302 幂等（M22 复刻）。
-10. GET status：有效 cookie → `{"authenticated":true}`；无 → false；带 `Authorization: Bearer`
-    头不影响（只认 cookie，M5）。
-11. method 分发：`DELETE /auth/login` → 405 + `allow: GET, POST`；`GET /auth/logout` → 405；
-    `POST /auth/status` → 405。
-12. prefix 兜底：`/auth/whatever` → 404 + no-store。
-13. 415/413：非 urlencoded → 415；超 16 KiB → 413 + `connection: close` + 不调 `req.destroy`
-    （M19 复刻）。
-14. `passwordLoginPageHtml`：直接断言 HTML 含两字段与 escape（本文件或 login-page 相关文件内）。
+1. registration shape: 4 — prefix `/auth`, exact `/auth/login`, `/auth/logout`, `/auth/status`.
+2. GET login: 200 + HTML containing `<form`, `name="username"`, `name="password"`; hidden next escaped
+   (`next="/x?a=1&b=2"` → `&amp;`); with an existing valid session it still always renders 200 (consistent with
+   M20).
+3. POST login success: fake verify true → 302 location=next + exact set-cookie string (both secure=true/false
+   states) + `sessions().create` called (subject = username, ttl = sessionTtl*1000) +
+   `limiter.recordSuccess` called + `info("session issued")`.
+4. POST login failure: verify false → 401 `"invalid credentials"` + `info("login rejected")` +
+   `recordFailure` called, no session created; unknown user (loadUsers does not contain the name) → verify receives
+   **DUMMY_HASH** → 401; disabled user → verify receives that user's real hash + 401 (P9: three states unified).
+5. POST login 429: limiter preset locked → 429 + numeric `retry-after` + `info("rate limit exceeded")`;
+   **verify not called** (no verification during the lock period).
+6. POST login 503: fake loadUsers rejects → 503 `"user store unavailable"` + error log + no failure counted;
+   `sessions()` undefined → 503 `"session store unavailable"`.
+   6b. POST login file missing: fake loadUsers returns `{ snapshot: empty, missing: true }` → 401
+   `"invalid credentials"` (empty user set) + `warn("users file not found: ...")` **once, on the first time**;
+   the second login does not repeat the warn (module-level flag).
+7. POST login next validation: `//evil.com` → `/`; `/ok/path` → as-is; `/auth/login`, `/auth/x` → `/`
+   (M20 loopback protection carried over).
+8. POST login empty username: only the IP bucket is touched (fake limiter asserts the account argument is
+   undefined); on the success path with a non-empty username → the account argument = username.
+9. POST logout: revoke called + set-cookie contains `Max-Age=0` + 302; next is query-only; no-body/no
+   content-type usable; 302 idempotent even without a cookie (replicating M22).
+10. GET status: valid cookie → `{"authenticated":true}`; none → false; an `Authorization: Bearer`
+    header has no effect (cookie only, M5).
+11. method dispatch: `DELETE /auth/login` → 405 + `allow: GET, POST`; `GET /auth/logout` → 405;
+    `POST /auth/status` → 405.
+12. prefix fallback: `/auth/whatever` → 404 + no-store.
+13. 415/413: not urlencoded → 415; over 16 KiB → 413 + `connection: close` + `req.destroy` not called
+    (replicating M19).
+14. `passwordLoginPageHtml`: directly assert the HTML contains both fields and escaping (in this file or in the
+    login-page-related file).
 
-**`src/cli.test.ts`**（fake `CliIo`：`out/err` 收集到数组、`readLine` 返回预置行）—
+**`src/cli.test.ts`** (fake `CliIo`: `out/err` collected into arrays, `readLine` returns preset lines) —
 
-1. `add` 全流程：mkdtemp 文件路径 + `--password-stdin` → exit 0、out 含 `user alice added`、
-   文件已建且 mode 0600（POSIX only）、再 `loadUsersFile` 读回含 alice；用 `verifyPassword` 验证
-   文件里的哈希能验证该口令（真实 scrypt 一次）。
-2. `add` 失败分支：缺 `--password-stdin` → exit 1 + usage；name 非法（含空格/开头数字）→ exit 1；
-   同名已存在 → exit 1 + `already exists`；stdin 空行 → exit 1。
-3. `add --disabled` → 读回 `disabled: true`。
-4. `list`：预置两用户（一禁用）→ 输出两行、字典序、`(disabled)` 标记；空文件 → 无输出 exit 0。
-5. `disable`：→ exit 0 + `user alice disabled` + 读回 disabled；不存在 → exit 1 + `not found`；
-   再次 disable → 幂等 exit 0。
-6. 未知子命令/未知 flag → exit 1 + usage 到 err。
-7. `--file` 指向不存在目录 → 自动创建（writeUsersFile 语义）。
+1. `add` full flow: mkdtemp file path + `--password-stdin` → exit 0, out contains `user alice added`,
+   the file exists with mode 0600 (POSIX only), then re-reading via `loadUsersFile` contains alice; use
+   `verifyPassword` to confirm the hash in the file verifies that password (one real scrypt).
+2. `add` failure branches: missing `--password-stdin` → exit 1 + usage; invalid name (with a space / starts with a
+   digit) → exit 1; same name already exists → exit 1 + `already exists`; empty stdin line → exit 1.
+3. `add --disabled` → reading back yields `disabled: true`.
+4. `list`: preset two users (one disabled) → two output lines, lexicographic, `(disabled)` marker; empty file →
+   no output, exit 0.
+5. `disable`: → exit 0 + `user alice disabled` + reading back shows disabled; not exist → exit 1 + `not found`;
+   disabling again → idempotent exit 0.
+6. unknown subcommand/unknown flag → exit 1 + usage to err.
+7. `--file` pointing at a nonexistent directory → auto-created (writeUsersFile semantics).
 
-**`src/index.test.ts` 适配**（既有用例全保留，新增/修改）—
+**`src/index.test.ts` adaptation** (all existing cases preserved, new additions/modifications) —
 
-1. `mode: "password"` **不再抛错**（M2 的抛错用例删除）；gate 为 `PasswordGate` 实例。
-2. `mode: "token"`（默认）gate 仍为 `TokenGate`；fake ctx 记录 `get("credentials")` 被访问。
-3. password 模式：fake ctx 断言 `get("credentials")` **未被访问**；端点注册走 password 版
-   （fake register 记录 4 条路由，与 token 版同形）。
-4. `usersFile` 默认解析：`vi.stubEnv("DSH_HOME", tmp)` 下挂载 password 模式 + `vi.mock("./password-endpoints.js")`
-   捕获 `registerPasswordEndpoints` 收到的 deps → 断言 `deps.usersPath === path.join(tmp, "auth", "users.yaml")`；
-   显式 `usersFile: "/x.yaml"` → `deps.usersPath === "/x.yaml"`。测试后 `vi.unstubAllEnvs()`。
-5. Config 默认值：`{}` → 含 `usersFile: ""`。
-6. 既有注销/自检/双缺失用例保持绿（token 分支）。
+1. `mode: "password"` **no longer throws** (delete M2's throw test case); the gate is a `PasswordGate` instance.
+2. `mode: "token"` (default) gate is still `TokenGate`; the fake ctx records that `get("credentials")` was accessed.
+3. password mode: the fake ctx asserts `get("credentials")` was **not accessed**; endpoint registration goes through
+   the password version (fake register records 4 routes, same shape as the token version).
+4. `usersFile` default resolution: under `vi.stubEnv("DSH_HOME", tmp)`, mount password mode with `vi.mock("./password-endpoints.js")`
+   capturing the deps `registerPasswordEndpoints` receives → assert `deps.usersPath === path.join(tmp, "auth", "users.yaml")`;
+   explicit `usersFile: "/x.yaml"` → `deps.usersPath === "/x.yaml"`. Afterwards `vi.unstubAllEnvs()`.
+5. Config defaults: `{}` → contains `usersFile: ""`.
+6. existing logout/self-check/both-missing cases stay green (token branch).
 
-**`src/integration.password.test.ts`**（真实入口路径）— 真实 cordis + **真实 storage 栈**
-（Storage → storage-json → storage-domain，挂载顺序同 `integration.auth.test.ts`）+ 真实
-WebServer + 真实 users 文件（`mkdtemp` root；`beforeAll` 用 `hashPassword` + `writeUsersFile`
-预置 `admin`（口令 `<test-password>`）与 `disableduser`（`disabled: true`））+ 本插件
-`config { mode: "password", cookieSecure: false, usersFile: <tmp>/users.yaml }`：
+**`src/integration.password.test.ts`** (real entry path) — real cordis + **real storage stack**
+(Storage → storage-json → storage-domain, mount order same as `integration.auth.test.ts`) + real
+WebServer + real users file (`mkdtemp` root; `beforeAll` uses `hashPassword` + `writeUsersFile`
+to preset `admin` (password `<test-password>`) and `disableduser` (`disabled: true`)) + this plugin
+`config { mode: "password", cookieSecure: false, usersFile: <tmp>/users.yaml }`:
 
-1. 全流程：`GET /auth/login` → 200 含 `name="username"`；错口令 → 401；对 → 302 + set-cookie +
-   location；带 cookie `GET /__probe` → 200；无 cookie → 302（HTML accept）/ 401（JSON accept）；
-   `Authorization: Bearer <cookie 里的会话 token>` → 200；Bearer 错 → 401；`POST /auth/logout?next=/`
-   带 cookie → 302 + Max-Age=0；原 cookie 再访问 → 401。
-2. subject 审计：登录成功后 `ctx.get("auth")!.sessions!.getByToken(<cookie token>)!.subject === "admin"`。
-3. 禁用/未知用户：disableduser → 401；`ghost` → 401（响应体一致 `invalid credentials`）。
-4. 文件不可用：改写 users.yaml 为坏 YAML → 登录 503；恢复 → 401 正常。文件缺失（指向不存在的
-   路径，独立实例）→ 登录 401（空用户集）。
-5. WS 通道：带会话 cookie 的 upgrade → 101；`Authorization: Bearer <会话 token>` 的 upgrade →
-   101；无凭证 → 401 拒握手（复用 M1 `requestUpgradeStatus` 模式 + 变体头）。
-6. 429 限速：**独立 describe + 新 ctx/端口**（P25——不污染共享实例的 limiter）：连错 5 次 →
-   第 6 次 429 + `retry-after` 头；随后正确口令也 429（锁定中）。
-7. token 模式回归由既有 `integration.auth.test.ts` 承担（不动、必须绿）。
+1. full flow: `GET /auth/login` → 200 containing `name="username"`; wrong password → 401; correct → 302 +
+   set-cookie + location; with cookie `GET /__probe` → 200; without cookie → 302 (HTML accept) / 401 (JSON
+   accept); `Authorization: Bearer <session token from the cookie>` → 200; wrong Bearer → 401;
+   `POST /auth/logout?next=/` with cookie → 302 + Max-Age=0; the original cookie then → 401.
+2. subject audit: after a successful login, `ctx.get("auth")!.sessions!.getByToken(<cookie token>)!.subject === "admin"`.
+3. disabled/unknown users: disableduser → 401; `ghost` → 401 (identical `invalid credentials` response body).
+4. file unusable: rewrite users.yaml as bad YAML → login 503; restore → normal 401. File missing (pointing at a
+   nonexistent path, standalone instance) → login 401 (empty user set).
+5. WS channel: upgrade with a session cookie → 101; upgrade with `Authorization: Bearer <session token>` →
+   101; no credentials → 401 rejects the handshake (reusing the M1 `requestUpgradeStatus` pattern + header
+   variants).
+6. 429 rate limiting: **separate describe + new ctx/port** (P25 — do not pollute the shared instance's limiter):
+   5 consecutive failures → the 6th is 429 + `retry-after` header; then even the correct password is 429 (locked).
+7. token-mode regression is covered by the existing `integration.auth.test.ts` (unchanged, must stay green).
 
 ---
 
-## 6. 实施顺序（每步保持 `npm run verify` 绿）
+## 6. Implementation order (keep `npm run verify` green at every step)
 
-1. `package.json`（yaml + bin）+ `npm install --registry=https://registry.npmjs.org/`。
-2. `src/password.ts` + `src/password.test.ts`。
-3. `src/rate-limit.ts` + `src/rate-limit.test.ts`。
-4. `src/users-file.ts` + `src/users-file.test.ts`。
-5. `src/auth-common.ts`（提取 validateNext）+ `auth-endpoints.ts` 改 import——**立即跑
+1. `package.json` (yaml + bin) + `npm install --registry=https://registry.npmjs.org/`.
+2. `src/password.ts` + `src/password.test.ts`.
+3. `src/rate-limit.ts` + `src/rate-limit.test.ts`.
+4. `src/users-file.ts` + `src/users-file.test.ts`.
+5. `src/auth-common.ts` (extract validateNext) + change `auth-endpoints.ts` to import — **immediately run
    `npm run test -- src/auth-endpoints.test.ts src/auth-endpoints.login.test.ts src/auth-endpoints.methods.test.ts`
-   证明 M2 行为未变**。
-6. `src/password-gate.ts` + `src/password-gate.test.ts`。
-7. `src/login-page.ts` 增量（`passwordLoginPageHtml`，随第 8/9 步测试覆盖）。
-8. `src/password-login.ts`（行数拆分件，测试经第 9 步）。
-9. `src/password-endpoints.ts` + 三个测试文件（`password-endpoints.test.ts` /
-   `password-endpoints.login.test.ts` / `password-endpoints.methods.test.ts`）。
-10. `src/cli.ts` + `src/cli.test.ts`。
-11. `src/index.ts` 装配 + `src/index.test.ts` 适配。
-12. `src/integration.password.test.ts`。
-13. 文档：`docs/development.md` Structure 树、`README.md`（密码模式/CLI/users 文件契约）、
-    `AGENTS.md`（M3 指针）。
-14. `npm run build` + `lib/` 与 `src/` 同批；`git diff --exit-code -- lib` 通过。
-15. 服务器端到端冒烟（DoD 4）。
-16. 收尾写 `docs/handoff-m3.md`（DoD 6）。
+   to prove M2 behavior is unchanged**.
+6. `src/password-gate.ts` + `src/password-gate.test.ts`.
+7. `src/login-page.ts` increment (`passwordLoginPageHtml`, covered by tests in steps 8/9).
+8. `src/password-login.ts` (line-count split piece, tested via step 9).
+9. `src/password-endpoints.ts` + three test files (`password-endpoints.test.ts` /
+   `password-endpoints.login.test.ts` / `password-endpoints.methods.test.ts`).
+10. `src/cli.ts` + `src/cli.test.ts`.
+11. `src/index.ts` assembly + `src/index.test.ts` adaptation.
+12. `src/integration.password.test.ts`.
+13. Documentation: `docs/development.md` Structure tree, `README.md` (password mode/CLI/users file contract),
+    `AGENTS.md` (M3 pointers).
+14. `npm run build` + `lib/` in the same batch as `src/`; `git diff --exit-code -- lib` passes.
+15. Server end-to-end smoke test (DoD 4).
+16. Wrap up by writing `docs/handoff-m3.md` (DoD 6).
 
 ---
 
 ## 7. Definition of Done
 
-1. `npm run verify` 全绿（format/lint/type-check/coverage ≥80%/lock:check）。
-2. `npm run build` + `lib/` 与 `src/` 同批；`git diff --exit-code -- lib` 通过。
-3. `npm run test -- src/integration.password.test.ts src/integration.auth.test.ts src/integration.guard.test.ts src/integration.session.test.ts` 单独跑绿（token 模式回归 + password 真实路径）。
-4. **服务器端到端冒烟**（环境事实见 handoff §3；**本机 loopback 不可达，一律在服务器上验证**）：
-   1. 同步：`rsync -az --exclude node_modules --exclude .git /Users/randal/source/dsh-auth/ ubuntu:/tmp/dsh-auth-test/`
-      → 服务器 `cd /tmp/dsh-auth-test && npm install --registry=https://registry.npmjs.org/ && npm run build`。
-   2. 建用户（真实 CLI 路径）：
+1. `npm run verify` fully green (format/lint/type-check/coverage ≥80%/lock:check).
+2. `npm run build` + `lib/` in the same batch as `src/`; `git diff --exit-code -- lib` passes.
+3. `npm run test -- src/integration.password.test.ts src/integration.auth.test.ts src/integration.guard.test.ts src/integration.session.test.ts` passes when run alone (token-mode regression + password real path).
+4. **Server end-to-end smoke test** (environment facts see handoff §3; **this machine's loopback is unreachable,
+   always verify on the server**):
+   1. sync: `rsync -az --exclude node_modules --exclude .git /Users/randal/source/dsh-auth/ ubuntu:/tmp/dsh-auth-test/`
+      → on the server `cd /tmp/dsh-auth-test && npm install --registry=https://registry.npmjs.org/ && npm run build`.
+   2. create a user (real CLI path):
       ```bash
       ssh ubuntu 'printf "%s\n" "<test-password>" | node /tmp/dsh-auth-test/lib/cli.js user add admin --password-stdin --file ~/dsh-smoke/auth/users.yaml'
       ssh ubuntu 'node /tmp/dsh-auth-test/lib/cli.js user list --file ~/dsh-smoke/auth/users.yaml'
-      ssh ubuntu 'stat -c "%a" ~/dsh-smoke/auth/users.yaml'   # 期望 600
+      ssh ubuntu 'stat -c "%a" ~/dsh-smoke/auth/users.yaml'   # expect 600
       ```
-   3. overlay `~/dsh-smoke/cordis.patch.yml`：`dsh-auth` 行 config 改为
-      `{ mode: "password", cookieSecure: false }`（M1 探针行确认已删——handoff §5.3）；重启实例
-      （`pkill -f "[d]sh --profile web --port 3081"` 与启动**分两个 ssh 调用**，handoff §6 教训；
-      `nohup ... > ~/dsh-smoke/boot.log 2>&1 < /dev/null &`，等 ~25s）。
-   4. 验证序列（**先跑正确口令全流程，429 序列放最后**——30s 锁只影响登录端点）：
-      - `curl -s http://127.0.0.1:3081/auth/login | grep -o 'name="username"'` → 命中；状态 200；
-      - `curl -s -o /dev/null -w "%{http_code}\n" -d "username=admin&password=wrong" http://127.0.0.1:3081/auth/login` → 401；
-      - `curl -s -i -d "username=admin&password=<test-password>" -c jar http://127.0.0.1:3081/auth/login | head -3` → 302 + `set-cookie`；
-      - `curl -s -o /dev/null -w "%{http_code}\n" -b jar http://127.0.0.1:3081/__auth_probe` → 200；
-        无 cookie：`-H "Accept: application/json"` → 401、`-H "Accept: text/html"` → 302；
-      - Bearer 会话 token：`TOK=$(awk '$6=="dsh_auth" {print $7}' jar)` →
-        `curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOK" http://127.0.0.1:3081/__auth_probe` → 200；改错 token → 401；
-      - `curl -s http://127.0.0.1:3081/auth/status -b jar` → `{"authenticated":true}`；
-      - WS：无 cookie upgrade → 首行 `HTTP/1.1 401`；`-b jar` → `HTTP/1.1 101`（handoff §5.4 的
-        curl 命令 + `-b jar` / `-H "Authorization: Bearer $TOK"` 变体）；
+   3. overlay `~/dsh-smoke/cordis.patch.yml`: change the `dsh-auth` line's config to
+      `{ mode: "password", cookieSecure: false }` (confirm the M1 probe line is gone — handoff §5.3); restart the
+      instance (`pkill -f "[d]sh --profile web --port 3081"` and startup are **two separate ssh calls**, handoff
+      §6 lesson; `nohup ... > ~/dsh-smoke/boot.log 2>&1 < /dev/null &`, wait ~25s).
+   4. verification sequence (**run the correct-password full flow first, the 429 sequence last** — the 30s lock
+      only affects the login endpoint):
+      - `curl -s http://127.0.0.1:3081/auth/login | grep -o 'name="username"'` → hit; status 200;
+      - `curl -s -o /dev/null -w "%{http_code}\n" -d "username=admin&password=wrong" http://127.0.0.1:3081/auth/login` → 401;
+      - `curl -s -i -d "username=admin&password=<test-password>" -c jar http://127.0.0.1:3081/auth/login | head -3` → 302 + `set-cookie`;
+      - `curl -s -o /dev/null -w "%{http_code}\n" -b jar http://127.0.0.1:3081/__auth_probe` → 200;
+        without cookie: `-H "Accept: application/json"` → 401, `-H "Accept: text/html"` → 302;
+      - Bearer session token: `TOK=$(awk '$6=="dsh_auth" {print $7}' jar)` →
+        `curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOK" http://127.0.0.1:3081/__auth_probe` → 200; a wrong token → 401;
+      - `curl -s http://127.0.0.1:3081/auth/status -b jar` → `{"authenticated":true}`;
+      - WS: upgrade without a cookie → first line `HTTP/1.1 401`; `-b jar` → `HTTP/1.1 101` (the
+        curl command from handoff §5.4 + the `-b jar` / `-H "Authorization: Bearer $TOK"` variants);
       - `curl -s -i -X POST "http://127.0.0.1:3081/auth/logout?next=/" -b jar | head -3` → 302 +
-        `Max-Age=0`；原 cookie 再 `GET /__auth_probe` → 401；
-      - `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3081/auth/whatever` → 404；
-      - 最后：错口令连发 6 次（`for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w "%{http_code}\n" -d "username=admin&password=wrong" http://127.0.0.1:3081/auth/login; done`）
-        → 前 5 次 401、第 6 次 429；`curl -s -i -d "username=admin&password=<test-password>" http://127.0.0.1:3081/auth/login | head -5` → 429 + `retry-after` 头。
-   5. 收尾：杀掉实例或留用（报告状态）；`boot.log` 无 `password flow requires M3` 类报错。
-5. 报告：改动文件、P1–P26 落点、覆盖率数字、与本文档的偏差（应为零）。
-6. **写 `docs/handoff-m3.md`**（为 M4 交接）：环境事实增量（如 scrypt 实测耗时、CLI 在服务器上的
-   实际路径）、M3 冒烟真实结果、M3 踩坑清单、M4（TOTP）起点提示。已获用户指令才 commit/push。
+        `Max-Age=0`; the original cookie then `GET /__auth_probe` → 401;
+      - `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3081/auth/whatever` → 404;
+      - last: send the wrong password 6 times (`for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w "%{http_code}\n" -d "username=admin&password=wrong" http://127.0.0.1:3081/auth/login; done`)
+        → first 5 are 401, the 6th is 429; `curl -s -i -d "username=admin&password=<test-password>" http://127.0.0.1:3081/auth/login | head -5` → 429 + `retry-after` header.
+   5. wrap up: kill or keep the instance (report status); `boot.log` has no `password flow requires M3`-style error.
+5. Report: changed files, P1–P26 landing points, coverage numbers, deviations from this document (should be zero).
+6. **Write `docs/handoff-m3.md`** (for the M4 handoff): environment-fact increments (e.g. measured scrypt time,
+   the CLI's actual path on the server), M3 smoke-test real results, an M3 pitfalls list, M4 (TOTP) starting-point
+   hints. Commit/push only when instructed by the user.
 
 ---
 
-## 8. 禁区清单
+## 8. Forbidden-zone checklist
 
-- **不探索 harness 内部**（同 M1/M2）；users 文件、scrypt、yaml 全部只经 §3 的事实。
-- **依赖只加 `yaml`**：scrypt/CLI 参数解析/readline 全内建；devDependencies 不动；不动
-  `dsh-credentials-local` 等任何 harness 包。
-- **不动 token 模式行为**：`token-gate.ts`/`cookie.ts`/`form-body.ts`/`guard.ts`/`gate.ts`/
-  `session-store.ts`/`self-check.ts` 零改动；`auth-endpoints.ts` 仅 P17 一处 import 机械改动；
-  `integration.auth.test.ts` 必须原样绿。
-- **不弱化安全参数**：scrypt N/r/p/maxmem 冻结（P1）；测试不得换弱参数（P25）；限速常量不配置化
-  （P22）。
-- **不落敏感值**：口令/用户名（登录日志）/哈希/会话 token 永不进日志与测试快照（P23）；DUMMY
-  常量例外（非秘密）。
-- **不吞认证失败**：未知用户/错口令/禁用统一 401；文件不可用 503；凭证/文件错误不静默放行。
-- **不改门禁**：eslint/tsconfig/vitest/coverage 阈值不动；不加 eslint-disable（除文件内既有允许项）。
-- **分支纪律**：`development`；未获指令不 commit/push；`lib/` 与 `src/` 同批。
-- M4（TOTP 两段式、`revokeBySubject`、CSRF token、限速持久化）**不做**——需要时只写
-  `TODO(auth-m4):` 注释（带稳定 tag）。
+- **Do not explore the harness internals** (same as M1/M2); users file, scrypt, yaml all go only through the facts
+  in §3.
+- **Only add `yaml` as a dependency**: scrypt/CLI argument parsing/readline are all built-in; devDependencies
+  unchanged; do not touch any harness package such as `dsh-credentials-local`.
+- **Do not change token-mode behavior**: `token-gate.ts`/`cookie.ts`/`form-body.ts`/`guard.ts`/`gate.ts`/
+  `session-store.ts`/`self-check.ts` zero changes; `auth-endpoints.ts` only the one mechanical P17 import change;
+  `integration.auth.test.ts` must stay green unchanged.
+- **Do not weaken security parameters**: scrypt N/r/p/maxmem frozen (P1); tests must not swap in weak parameters
+  (P25); rate-limit constants not configurable (P22).
+- **Do not log sensitive values**: passwords/usernames (login logs)/hashes/session tokens never enter logs and
+  test snapshots (P23); DUMMY constants are the exception (not secret).
+- **Do not swallow auth failures**: unknown user/wrong password/disabled all uniformly 401; file unusable 503;
+  credential/file errors are not silently passed through.
+- **Do not change the gates**: eslint/tsconfig/vitest/coverage thresholds unchanged; no `eslint-disable` (except
+  allowed items already present in a file).
+- **Branch discipline**: `development`; no commit/push without instruction; `lib/` in the same batch as `src/`.
+- M4 (TOTP two-step, `revokeBySubject`, CSRF token, rate-limit persistence) **is not done** — when needed, only
+  write a `TODO(auth-m4):` comment (with a stable tag).
 
 ---
 
-## 9. 明确不做（M3 范围外）
+## 9. Explicitly not done (outside M3 scope)
 
-- TOTP 两段式登录、`totpSecret` 的使用、防重放（M4）。
-- 禁用用户即时吊销已发会话（P15 局限，M4 评估 `revokeBySubject`）。
-- token + password 双模式并存（mode 二选一，P11）。
-- 登录限速持久化/跨进程（内存态，P10）。
-- CSRF token（P21 评估结论：M3 不加，M4 再评估）。
-- 登录页美化/国际化、client 半边登出按钮（GUI 组件）。
-- 部署侧交付物：正式生产 `cordis.patch.yml`、部署验收清单（M3 冒烟通过后单独做，handoff §6）。
+- TOTP two-step login, using `totpSecret`, replay protection (M4).
+- Immediately revoking already-issued sessions of disabled users (P15 limitation, evaluate `revokeBySubject` in M4).
+- token + password dual-mode coexistence (mode is one of two, P11).
+- Rate-limit persistence/across processes (in-memory, P10).
+- CSRF token (P21 evaluation conclusion: not in M3, re-evaluate in M4).
+- Login page beautification/internationalization, the client-side sign-out button (GUI components).
+- Deploy-side deliverables: a production `cordis.patch.yml`, the deployment acceptance checklist (done separately
+  after the M3 smoke test passes, handoff §6).
