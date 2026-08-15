@@ -54,6 +54,7 @@ export async function handlePasswordLogin(
   const loaded = await loadUsersOr503(deps, res);
   if (loaded === undefined) return; // 系统错误不计失败
   if (await rejectedInvalid(deps, res, loaded, username, password, ip, accountKey)) return;
+  deps.limiter.recordSuccess(ip, accountKey); // P10：验证通过即清零失败桶（spec §4.7 步骤 7）
 
   const store = deps.sessions();
   if (store === undefined) {

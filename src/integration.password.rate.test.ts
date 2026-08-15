@@ -192,6 +192,23 @@ describe("integration: password rate limiting (isolated instance)", () => {
       await unmountStack(fibers, root);
     }
   });
+
+  it("clears the failure buckets on a successful login (recordSuccess)", async () => {
+    const { port, fibers, root } = await mountPasswordStack();
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      for (let i = 0; i < 4; i++) {
+        const res = await postLogin(base, loginBody("admin", "wrong"));
+        expect(res.status).toBe(401);
+      }
+      expect((await postLogin(base, loginBody("admin", TEST_PASSWORD))).status).toBe(302);
+      // 成功登录已清零失败桶：再失败一次仍为 401，且随后正确口令能登录（未清零则触发 30s 锁 → 429）。
+      expect((await postLogin(base, loginBody("admin", "wrong"))).status).toBe(401);
+      expect((await postLogin(base, loginBody("admin", TEST_PASSWORD))).status).toBe(302);
+    } finally {
+      await unmountStack(fibers, root);
+    }
+  });
 });
 
 describe("integration: password upgrades", () => {

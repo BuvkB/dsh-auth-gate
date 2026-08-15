@@ -192,7 +192,7 @@ describe("POST /auth/login: success", () => {
     expect(harness.logs).toContainEqual({ level: "info", message: "session issued" });
   });
 
-  it("passes the account key to the limiter on success", async () => {
+  it("succeeds without a next parameter (defaults to /)", async () => {
     const harness = makeHarness();
     registerPasswordEndpoints(harness.deps);
     const res = makeRes();
