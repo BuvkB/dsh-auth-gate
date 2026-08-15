@@ -32,14 +32,17 @@ in first.
 ## Quick start
 
 ```sh
-# 1. Install the plugin from npm into your dsh profile
+# 1. Install the plugin from npm into your dsh profile.
+#    Since 0.4.1 the package declares a `dsh.bundle` manifest, so `dsh plugin add`
+#    also registers the mount (dsh.profile.bundles) automatically:
 dsh plugin --profile web add dsh-auth-gate
 
 # 2. Create an admin account
 printf '%s\n' 'choose-a-strong-password' | dsh-auth user add admin --password-stdin
 
-# 3. Turn on password login: add the dsh-auth-gate row to $DSH_HOME/cordis.patch.yml
-#    (a ready-to-use template ships in deploy/cordis.patch.yml; see Configuration)
+# 3. Turn on password login: override the plugin config in $DSH_HOME/cordis.patch.yml
+#    (a ready-to-use config-override template ships in deploy/cordis.patch.yml;
+#    see Configuration below — the mount itself needs no manual patch row)
 
 # 4. Restart dsh. Open your site — you will be asked to sign in.
 ```
@@ -56,16 +59,18 @@ After signing in, they land on your instance:
 
 ## Configuration
 
-Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
-`deploy/cordis.patch.yml`). The `dsh-auth-gate` row:
+The bundle mount (id `dsh-auth-gate`, inserted by `dsh plugin add`) uses the
+default config: `mode: "token"` backed by the `DSH_AUTH_TOKEN` environment
+variable. To change it, override the config in `$DSH_HOME/cordis.patch.yml`
+(or the profile's `cordis.patch.yml` — a ready-to-use override template ships
+in `deploy/cordis.patch.yml`). The override targets the mounted row by id
+(no `insert` — adding one would double-mount the plugin):
 
 ```yaml
-- insert:
-    - id: dsh-auth-gate
-      name: dsh-auth-gate
-      config:
-        mode: "password" # "password" (recommended) or "token"
-        cookieSecure: true # keep true when you use https
+- id: dsh-auth-gate
+  config:
+    mode: "password" # "password" (recommended) or "token"
+    cookieSecure: true # keep true when you use https
 ```
 
 | Option         | Default            | What it does                                                                       |

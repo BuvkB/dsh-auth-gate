@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.4.0...v0.4.1) (2026-08-15)
+
+
+### Features
+
+* declare `dsh.bundle` manifest so `dsh plugin add` registers the mount automatically (root [`cordis.patch.yml`](cordis.patch.yml); config overrides now live in the user patch layer, see `deploy/cordis.patch.yml`)
+
 ## [0.4.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.3.0...v0.4.0) (2026-08-15)
 
 
