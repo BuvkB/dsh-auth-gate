@@ -1,4 +1,4 @@
-# dsh-auth
+# dsh-auth-gate
 
 **English** | [简体中文](README.zh.md)
 
@@ -32,21 +32,27 @@ in first.
 ## Quick start
 
 ```sh
-# 1. Install the plugin (build a tarball, copy it to your server)
-npm pack
-scp dsh-auth-gate-0.0.0.tgz your-server:/tmp/
+# 1. Install the plugin from npm into your dsh profile
+dsh plugin --profile web add dsh-auth-gate
 
-# 2. On the server, install it into your dsh profile
-dsh plugin --profile web add /tmp/dsh-auth-gate-0.0.0.tgz
-
-# 3. Create an admin account
+# 2. Create an admin account
 printf '%s\n' 'choose-a-strong-password' | dsh-auth user add admin --password-stdin
 
-# 4. Turn on password login: add the dsh-auth row to $DSH_HOME/cordis.patch.yml
+# 3. Turn on password login: add the dsh-auth row to $DSH_HOME/cordis.patch.yml
 #    (a ready-to-use template ships in deploy/cordis.patch.yml; see Configuration)
 
-# 5. Restart dsh. Open your site — you will be asked to sign in.
+# 4. Restart dsh. Open your site — you will be asked to sign in.
 ```
+
+## See it in action
+
+Visitors without a session are sent to the login page:
+
+![Login page](docs/demo/login-page.png)
+
+After signing in, they land on your instance:
+
+![dsh instance](docs/demo/dashboard.png)
 
 ## Configuration
 

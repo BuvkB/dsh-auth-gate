@@ -26,21 +26,17 @@
 
 ## 1. 安装 dsh-auth（一次性）
 
-在**源仓库机器**打包，传到服务器，用 `dsh plugin` 安装进目标 profile：
+包已发布到 npm（`dsh-auth-gate`），一条命令装进目标 profile：
 
 ```bash
-# 源机器（仓库根）：
-npm pack                                  # 产出 dsh-auth-<version>.tgz
-scp dsh-auth-<version>.tgz ubuntu:/tmp/
-
 # 服务器（$DSH_HOME 指向目标实例，如 ~/.dsh 或隔离目录）：
 export PATH="$HOME/.npm-global/bin:$PATH"
-dsh plugin --profile web add /tmp/dsh-auth-<version>.tgz   # --profile 在 plugin 之后（实测）
+dsh plugin --profile web add dsh-auth-gate   # 转发 pnpm，从公共 npm 解析（实测）
 ```
 
 - 安装后 `$DSH_HOME/profiles/web/package.json` 的 `dependencies` 含 `dsh-auth-gate`；
-  `dsh plugin` 转发 pnpm，依赖（`yaml`、`@deepseek-ai/*`）自动从公共 npm 解析。
-- 升级：重新 `npm pack` + `dsh plugin --profile web add <新 tarball>`（pnpm 覆盖升级）。
+  依赖（`yaml`、`@deepseek-ai/*`）自动从公共 npm 解析。
+- 升级：重跑同一命令（pnpm 拉新版本）。
 - 卸载：`dsh plugin --profile web remove dsh-auth-gate`（同时删 overlay 行）。
 
 ## 2. 配置
