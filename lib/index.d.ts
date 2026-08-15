@@ -1,25 +1,29 @@
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
-import { type Gate } from "./gate.js";
+import type { Gate } from "./gate.js";
 import { SessionStore } from "./session-store.js";
 /** 稳定 Cordis 插件名（host 组合行 id）。 */
 export declare const name = "dsh-auth";
-/** 硬依赖：守卫包装 webServer 的路由表；storageDomain 软读（见 apply）。 */
+/** 硬依赖：守卫包装 webServer 的路由表；storageDomain/credentials 软读（见 apply）。 */
 export declare const inject: readonly ["webServer"];
 export interface AuthConfig {
-    /** 认证流：token（M2）/ password（M3）。M1 只进 schema。 */
+    /** 认证流：token（M2）/ password（M3）。M2 只实现 token。 */
     mode: "token" | "password";
     /** 会话 TTL（秒）。 */
     sessionTtl: number;
     /** 会话 cookie 名。 */
     cookieName: string;
+    /** 共享 token 的 credentials 引用名（环境变量名）。 */
+    tokenRef: string;
+    /** cookie 是否带 `; Secure`（http 测试/开发可关，M7）。 */
+    cookieSecure: boolean;
 }
 export declare const Config: z<AuthConfig>;
 /** 本插件提供的 auth 服务：门（可换流/测试注入）+ 会话层。 */
 export interface AuthService {
     /** storageDomain 缺失时为 undefined（会话不可用但守卫照常挂载）。 */
     sessions: SessionStore | undefined;
-    /** 可写：M2 换 token 门、测试注入假门。 */
+    /** 可写：M2 为 TokenGate；测试注入假门。 */
     gate: Gate;
 }
 declare module "@deepseek-ai/cordis" {
@@ -28,8 +32,9 @@ declare module "@deepseek-ai/cordis" {
     }
 }
 /**
- * 应用 auth 门：提供 auth 服务 → 软接会话层（storage domain）→ 包装 webServer
- * 四类入口 → 启动自检（未全覆盖 = fail loud，fiber 启动失败即裸奔可见）。
+ * 应用 auth 门：mode 校验（fail loud）→ credentials 解析器 → auth 服务（一步成型，
+ * TokenGate 的 sessions 访问器闭包自引用 auth）→ 软接会话层 → 包装 webServer 四类入口 →
+ * 注册 /auth 端点 → 启动自检（未全覆盖 = fail loud）。
  */
 export declare function apply(ctx: Context, config: AuthConfig): void;
 //# sourceMappingURL=index.d.ts.map

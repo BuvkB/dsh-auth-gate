@@ -5,9 +5,17 @@ import { z } from "zod";
 /** 会话 cookie 属性（M2 起使用；M1 冻结并测试）。 */
 export const COOKIE_FLAGS = "Path=/; HttpOnly; Secure; SameSite=Lax";
 
-/** 精确输出 `<name>=<token>; Max-Age=<secs>; Path=/; HttpOnly; Secure; SameSite=Lax`。 */
-export function buildSetCookie(cookieName: string, token: string, maxAgeSeconds: number): string {
-  return `${cookieName}=${token}; Max-Age=${maxAgeSeconds}; ${COOKIE_FLAGS}`;
+/**
+ * 精确输出 `<name>=<token>; Max-Age=<secs>; Path=/; HttpOnly; Secure; SameSite=Lax`；
+ * `secure=false` 时省略 `; Secure`（http 测试/开发，M7）。
+ */
+export function buildSetCookie(
+  cookieName: string,
+  token: string,
+  maxAgeSeconds: number,
+  secure = true,
+): string {
+  return `${cookieName}=${token}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax`;
 }
 
 /** 会话 token 的落盘键：sha256 hex 小写（64 字符）——介质上永不出现原始 token。 */

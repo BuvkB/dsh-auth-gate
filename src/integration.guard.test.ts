@@ -73,7 +73,8 @@ describe("integration: real webserver + guard", () => {
 
     try {
       const base = `http://127.0.0.1:${port}`;
-      // NoopGate (M1) allows everything through.
+      // M2：插件挂 TokenGate（无凭证恒 deny）——先显式换 allow 门验证守卫放行零扰动。
+      ctx.get("auth")!.gate = { decide: () => "allow" };
       expect(await (await fetch(`${base}/probe`)).text()).toBe("probe");
       expect(await (await fetch(`${base}/pfx/x`)).text()).toBe("pfx");
       expect(await (await fetch(`${base}/`)).text()).toBe("spa");

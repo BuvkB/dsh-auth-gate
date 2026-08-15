@@ -5,6 +5,8 @@ import type { Gate, GuardKind } from "./gate.js";
 export declare const GUARDED: unique symbol;
 /** 登录页路径（拒绝时 302 的目标）。 */
 export declare const LOGIN_PATH = "/auth/login";
+/** auth 公共路径前缀（TokenGate 白名单，M4）。 */
+export declare const AUTH_PATH_PREFIX = "/auth";
 export type HttpHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 export type UpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;
 export interface WrappableRoute {

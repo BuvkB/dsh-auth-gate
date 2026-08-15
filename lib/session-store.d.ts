@@ -1,8 +1,11 @@
 import { type KvTable } from "@deepseek-ai/dsh-storage-domain";
 /** 会话 cookie 属性（M2 起使用；M1 冻结并测试）。 */
 export declare const COOKIE_FLAGS = "Path=/; HttpOnly; Secure; SameSite=Lax";
-/** 精确输出 `<name>=<token>; Max-Age=<secs>; Path=/; HttpOnly; Secure; SameSite=Lax`。 */
-export declare function buildSetCookie(cookieName: string, token: string, maxAgeSeconds: number): string;
+/**
+ * 精确输出 `<name>=<token>; Max-Age=<secs>; Path=/; HttpOnly; Secure; SameSite=Lax`；
+ * `secure=false` 时省略 `; Secure`（http 测试/开发，M7）。
+ */
+export declare function buildSetCookie(cookieName: string, token: string, maxAgeSeconds: number, secure?: boolean): string;
 /** 会话 token 的落盘键：sha256 hex 小写（64 字符）——介质上永不出现原始 token。 */
 export declare function digestToken(token: string): string;
 export interface Session {

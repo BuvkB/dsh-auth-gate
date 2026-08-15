@@ -108,4 +108,16 @@ describe("buildSetCookie", () => {
       "dsh_auth=tok; Max-Age=604800; Path=/; HttpOnly; Secure; SameSite=Lax",
     );
   });
+
+  it("omits Secure when secure=false", () => {
+    expect(buildSetCookie("dsh_auth", "tok", 604800, false)).toBe(
+      "dsh_auth=tok; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax",
+    );
+  });
+
+  it("keeps the M1 output when the 4th argument is omitted", () => {
+    expect(buildSetCookie("dsh_auth", "tok", 604800)).toBe(
+      buildSetCookie("dsh_auth", "tok", 604800, true),
+    );
+  });
 });
