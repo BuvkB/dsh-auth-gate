@@ -26,11 +26,11 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TecFancy/dsh-auth.git"
+    "url": "git+https://github.com/TecFancy/dsh-auth-gate.git"
   },
-  "homepage": "https://github.com/TecFancy/dsh-auth",
+  "homepage": "https://github.com/TecFancy/dsh-auth-gate",
   "bugs": {
-    "url": "https://github.com/TecFancy/dsh-auth/issues"
+    "url": "https://github.com/TecFancy/dsh-auth-gate/issues"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
