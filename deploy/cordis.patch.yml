@@ -12,7 +12,7 @@
 #   纪律：验收清单含"auth 行健康"检查）。
 - insert:
     - id: dsh-auth
-      name: dsh-auth
+      name: dsh-auth-gate
       config:
         mode: "password"
         cookieSecure: true

@@ -34,10 +34,10 @@ in first.
 ```sh
 # 1. Install the plugin (build a tarball, copy it to your server)
 npm pack
-scp dsh-auth-0.0.0.tgz your-server:/tmp/
+scp dsh-auth-gate-0.0.0.tgz your-server:/tmp/
 
 # 2. On the server, install it into your dsh profile
-dsh plugin --profile web add /tmp/dsh-auth-0.0.0.tgz
+dsh plugin --profile web add /tmp/dsh-auth-gate-0.0.0.tgz
 
 # 3. Create an admin account
 printf '%s\n' 'choose-a-strong-password' | dsh-auth user add admin --password-stdin
@@ -56,7 +56,7 @@ Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
 ```yaml
 - insert:
     - id: dsh-auth
-      name: dsh-auth
+      name: dsh-auth-gate
       config:
         mode: "password" # "password" (recommended) or "token"
         cookieSecure: true # keep true when you use https

@@ -29,10 +29,10 @@
 ```sh
 # 1. 打包插件并复制到服务器
 npm pack
-scp dsh-auth-0.0.0.tgz your-server:/tmp/
+scp dsh-auth-gate-0.0.0.tgz your-server:/tmp/
 
 # 2. 在服务器上装进你的 dsh profile
-dsh plugin --profile web add /tmp/dsh-auth-0.0.0.tgz
+dsh plugin --profile web add /tmp/dsh-auth-gate-0.0.0.tgz
 
 # 3. 创建管理员账号
 printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
@@ -51,7 +51,7 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 ```yaml
 - insert:
     - id: dsh-auth
-      name: dsh-auth
+      name: dsh-auth-gate
       config:
         mode: "password" # "password"（推荐）或 "token"
         cookieSecure: true # 使用 https 时保持 true
