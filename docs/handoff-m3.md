@@ -15,9 +15,13 @@ WS/429 限速/禁用用户/白名单）。`mode: "token"`（M2）行为零改动
 
 ## 2. 仓库与远端状态快照（2026-08-15 午后）
 
-- 分支：`development`；本地领先 `origin/development` 5 个提交（M2 实施 2 个 + M3 规格
-  `1fac9fe` + M3 实施 2 个？——**以 `git log --oneline origin/development..HEAD` 为准**；
-  M3 实施提交**未推**，未获用户指令不 push）。
+- 分支：`development`；本地领先 `origin/development` **7 个提交**（`git log --oneline
+origin/development..HEAD`）：
+  - M2：`c184dbc`（spec 最终化）→ `bbe39bd`（handoff 快照）→ `aee37b4`（feat 实施）→
+    `6a5064e`（lazy credentials 文档）；
+  - M3：`1fac9fe`（spec）→ `db21eac`（feat 实施）→ `e030e75`（docs 契约/handoff）。
+- **全部未推**（`origin/development` 仍停在 M1 的 `4b5f712`；CI 对 M2/M3 未跑）。未获用户
+  指令不 push。
 - M3 实施期间的提交纪律照旧：`lib/` 与 `src/` 同批；`docs:`/`feat:` 分型。
 
 ## 3. M3 实施踩坑清单（新 session 直接规避）
