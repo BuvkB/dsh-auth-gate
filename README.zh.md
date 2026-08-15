@@ -2,109 +2,81 @@
 
 [English](README.md) | **简体中文**
 
-面向 [DeepSeek Harness](https://github.com/deepseek-ai/dsh) web 表面的应用层认证插件：包装
-`webServer` 路由表为登录门，公网部署的 dsh 实例在 agent 平面、会话库与 LLM 凭据可达之前
-先被认证门保护。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/dsh)（dsh）网页版加一道登录门。部署到
+公网 dsh 实例前面之后，不登录就没人能碰到你的 agent、聊天会话和 LLM 凭证。
 
-让 agent 帮你部署：打包 → 装进 dsh profile（`dsh plugin --profile web add <tarball>`）→
-用随包 CLI 建 `users.yaml` 凭证 → 挂生产 overlay → 对活实例跑验收清单——
-见 [docs/deployment.md](docs/deployment.md)。
+## 它能做什么
 
-## 提供什么
+- **所有访问都要先登录。** 每个页面、每个 API 调用、每条 WebSocket 连接都会检查；
+  没有有效会话的访客会被带到简单的登录页（API/脚本请求则返回 `401`）。
+- **两种登录方式**（配置里二选一）：
+  - **密码**（推荐）：每个管理员一个用户名和密码。
+  - **令牌**：整个实例共用一个秘密令牌。
+- **浏览器和脚本都能用。** 浏览器走登录页；脚本和 curl 直接带
+  `Authorization: Bearer <token>` 就能跳过登录页。
+- **默认就安全。** 密码只存哈希、登录有限速（反复输错会临时锁定该地址）、会话 cookie
+  带安全属性，而且配置缺失或损坏时**拒绝访问而不是悄悄开门**。
+- **一个管理用户的小命令行工具**：
 
-**覆盖 `webServer` 四类入口的守卫**（exact 路由、前缀、fallback、WS 升级），启动自检
-fail loud（任何入口未包装即启动失败）。无有效会话的请求被拒绝：浏览器导航 302 到登录页、
-API/WS 401/拒握手。**单门模型**：过门 = 完整访问，无用户间隔离
-（见 [docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)）。
+  ```sh
+  dsh-auth user add admin --password-stdin   # 添加用户
+  dsh-auth user list                          # 查看用户
+  dsh-auth user disable admin                 # 禁止某用户今后登录
+  ```
 
-**两种互斥登录流**（`mode` 二选一）：
-
-| 模式                  | 凭证                                                                        | Bearer 通道                                              | 入口                                                            |
-| --------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
-| `"token"`（默认，M2） | `$DSH_HOME/.credentials.yaml` 的共享随机 token（env 引用 `DSH_AUTH_TOKEN`） | `Authorization: Bearer <token>`（恒时比较）              | `GET/POST /auth/login`、`POST /auth/logout`、`GET /auth/status` |
-| `"password"`（M3）    | `$DSH_HOME/auth/users.yaml` 的用户名/口令（scrypt 哈希）                    | `Authorization: Bearer <会话 token>`（会话查表，可吊销） | 同上四个端点 + `dsh-auth` CLI                                   |
-
-**安全特性**（两模式共有）：
-
-- `HttpOnly; Secure; SameSite=Lax` 会话 cookie（`cookieSecure` 可关，供 http 测试环境）；
-  会话 token 只存 SHA-256 摘要；256-bit 随机签发、每次登录新会话（防固定）；
-- password 模式：scrypt（`node:crypto`，N=2¹⁶ / r=8 / p=1）、恒时验证 + 未知用户占位哈希
-  路径（防枚举）、未知/错口令/禁用统一 401、users 文件每次登录现读（免重启）、0600 权限纪律；
-- 登录限速：IP + 账号双桶、指数退避（30s 起、15min 封顶）、锁定期 `429 + retry-after`；
-- fail-closed：凭证/users 文件缺失、文件不可解析、会话存储缺失一律拒绝而非静默放行；
-  守卫自检未全覆盖即中止启动。
-
-**CLI**（`dsh-auth`，随包 bin）：
+## 快速开始
 
 ```sh
-dsh-auth user add admin --password-stdin     # 建用户，哈希写入 users.yaml
-dsh-auth user list                            # 列出用户（禁用带标记）
-dsh-auth user disable admin                   # 禁用（只拦新登录；已发会话 TTL 内有效）
-# 所有子命令支持 --file <path>
+# 1. 打包插件并复制到服务器
+npm pack
+scp dsh-auth-gate-0.0.0.tgz your-server:/tmp/
+
+# 2. 在服务器上装进你的 dsh profile
+dsh plugin --profile web add /tmp/dsh-auth-gate-0.0.0.tgz
+
+# 3. 创建管理员账号
+printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
+
+# 4. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里加 dsh-auth 行
+#    （仓库自带现成模板 deploy/cordis.patch.yml，见下方"配置"）
+
+# 5. 重启 dsh，打开你的站点——会先要求登录。
 ```
-
-## 示例流程
-
-典型部署流程（你或你的 agent 执行）：
-
-1. **打包安装** — `npm pack` → `scp dsh-auth-*.tgz server:/tmp/` →
-   `dsh plugin --profile web add /tmp/dsh-auth-*.tgz`（转发 pnpm）。
-2. **建管理员** — `printf '%s\n' '<强口令>' | dsh-auth user add admin --password-stdin`。
-3. **配置** — 把 [deploy/cordis.patch.yml](deploy/cordis.patch.yml) 复制为
-   `$DSH_HOME/cordis.patch.yml`；设 `mode: "password"`，TLS 环境保持 `cookieSecure: true`。
-4. **验收** — 重启后跑 [docs/deployment.md](docs/deployment.md) §4 序列：未认证请求被拒、
-   登录发会话 cookie、Bearer 会话 token 过门、WS 升级需 cookie、登出吊销、连续失败后
-   限速返回 `429 + retry-after`。
-
-## 前置条件
-
-- Node ≥ 22.19（与目标 dsh 部署一致）；`dsh plugin add` 需要 pnpm（服务器 npm 全局 prefix
-  可能需要 `--prefix ~/.npm-global`）；
-- 可用的 dsh web profile；`cookieSecure: true` 需前置 TLS 终结（curl/脚本不受 `Secure` 影响）；
-- `--trusted-host` 与认证**正交**：它只是 DNS-rebinding 防栏，不是认证——公网实例两者都要配。
-
-## 安装
-
-包未发布 npm（UNLICENSED），从 tarball 安装：
-
-```sh
-# 源机器
-npm pack                                  # 产出 dsh-auth-<version>.tgz
-scp dsh-auth-<version>.tgz server:/tmp/
-
-# 服务器
-dsh plugin --profile web add /tmp/dsh-auth-<version>.tgz
-```
-
-升级：重新打包再 add；卸载：`dsh plugin --profile web remove dsh-auth`（并删 overlay 行）。
 
 ## 配置
 
-插件行 config（`$DSH_HOME/cordis.patch.yml`）：
+编辑 `$DSH_HOME/cordis.patch.yml`（复制仓库里的模板 `deploy/cordis.patch.yml`），
+`dsh-auth` 行：
 
-| 字段           | 默认               | 说明                                                                         |
-| -------------- | ------------------ | ---------------------------------------------------------------------------- |
-| `mode`         | `"token"`          | `"token"`（M2 共享 token）或 `"password"`（M3）                              |
-| `sessionTtl`   | `604800`           | 会话 TTL（秒），自创建起固定过期                                             |
-| `cookieName`   | `dsh_auth`         | 会话 cookie 名                                                               |
-| `tokenRef`     | `"DSH_AUTH_TOKEN"` | token 模式：credentials 引用名（环境变量名）                                 |
-| `cookieSecure` | `true`             | 加 `; Secure`；仅 http 测试环境关                                            |
-| `usersFile`    | `""`               | password 模式：users.yaml 路径；`""` = `${DSH_HOME:-~/.dsh}/auth/users.yaml` |
+```yaml
+- insert:
+    - id: dsh-auth
+      name: dsh-auth-gate
+      config:
+        mode: "password" # "password"（推荐）或 "token"
+        cookieSecure: true # 使用 https 时保持 true
+```
 
-## 文档
+| 选项           | 默认值             | 作用                                                         |
+| -------------- | ------------------ | ------------------------------------------------------------ |
+| `mode`         | `"token"`          | `"password"` = 用户名密码登录；`"token"` = 一个共享秘密      |
+| `sessionTtl`   | `604800`           | 一次登录持续多久（秒），到期需重新登录                       |
+| `cookieName`   | `dsh_auth`         | 会话 cookie 的名字（很少需要改）                             |
+| `tokenRef`     | `"DSH_AUTH_TOKEN"` | 仅令牌模式：共享秘密存在哪个环境变量里                       |
+| `cookieSecure` | `true`             | 只在纯 http 测试环境设为 `false`                             |
+| `usersFile`    | `""`               | 密码模式：用户列表文件位置。默认 `$DSH_HOME/auth/users.yaml` |
 
-- 路线图与威胁模型：[docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)
-- 实施规格（实施唯一权威）：
-  [docs/impl-m1.md](docs/impl-m1.md) / [docs/impl-m2.md](docs/impl-m2.md) /
-  [docs/impl-m3.md](docs/impl-m3.md)
-- 部署与验收清单：[docs/deployment.md](docs/deployment.md) +
-  [deploy/cordis.patch.yml](deploy/cordis.patch.yml)
-- 开发规范：[docs/development.md](docs/development.md)
+## 环境要求
 
-## 已知局限
+- 服务器上需要 Node ≥ 22.19 和 pnpm。
+- dsh 的 `web` profile 正常运行（`dsh --profile web`）。
+- 如果 `cookieSecure` 是 `true`，站点必须走 https（浏览器在纯 http 下会拒绝安全 cookie）。
 
-- 禁用用户只拦新登录；已发会话在 TTL 内有效（暂无 `revokeBySubject`）。
-- 限速内存态（重启清零），按键为 socket 直连地址——故意不信任 `X-Forwarded-For`，反代部署
-  时限速按反代出口 IP 聚合。
-- 登录无 CSRF token（单门模型无用户间隔离；`SameSite=Lax` 已覆盖大部分；残余风险 M4 再评估）。
-- 暂无 client 半边 GUI（登出按钮）。
+## 注意事项与局限
+
+- 禁用用户只阻止**新**登录；已经登录的会话要等它自然过期。
+- 登录限速在服务器重启后清零。
+- 反代部署时，限速按反代出口地址统计。
+- dsh 界面里还没有登出按钮——访问 `/auth/logout?next=/` 即可登出。
+- 本插件只保护 dsh 的网页入口，不能替代服务器层面的安全：请保持服务器系统用户最小权限、
+  配置文件私密（`.credentials.yaml` 和 `auth/users.yaml` 创建时即为 `0600` 权限）。

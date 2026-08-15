@@ -2,129 +2,91 @@
 
 **English** | [简体中文](README.zh.md)
 
-Application-layer authentication for the
-[DeepSeek Harness](https://github.com/deepseek-ai/dsh) web surface. It wraps
-the `webServer` route tables with a login gate, so a public dsh deployment is
-protected before any agent session, session history, or LLM credentials can be
-reached.
+A login door for your [DeepSeek Harness](https://github.com/deepseek-ai/dsh)
+(dsh) web instance. Put it in front of a public dsh deployment and nobody can
+reach your agents, your chat sessions, or your LLM credentials without signing
+in first.
 
-Ask your agent to deploy it, and it will: pack the package, install it into a
-dsh profile (`dsh plugin --profile web add <tarball>`), create the
-`users.yaml` credential file with the bundled CLI, wire the production
-overlay, and run the acceptance checklist against the live instance — see
-[docs/deployment.md](docs/deployment.md).
+## What it does
 
-## What it adds
+- **Everything needs a login.** Every page, API call, and WebSocket connection
+  is checked. Visitors without a valid session are sent to a simple login page
+  (or rejected with `401` for API/script requests).
+- **Two ways to sign in** (pick one in the configuration):
+  - **Password** (recommended): each admin gets a username and password.
+  - **Token**: one shared secret token for the whole instance.
+- **Works for browsers and scripts.** Browsers use the login page; scripts and
+  curl can pass `Authorization: Bearer <token>` and skip the page entirely.
+- **Safe by default.** Passwords are stored hashed, logins are rate-limited
+  (repeated wrong attempts temporarily lock the address), session cookies are
+  secure, and any missing or broken configuration **blocks access instead of
+  silently opening the door**.
+- **A small command-line tool** for managing users:
 
-**A guard over all four entry types** of `webServer` (exact routes, prefixes,
-fallback, WebSocket upgrades), with a boot-time self-check that fails loud if
-any entry is left unwrapped. Requests without a valid session are rejected:
-302 to the login page for browser navigation, 401 / refused handshake for
-API/WS. It is a single-door model: passing the gate means full access — there
-is no per-user isolation (see [docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)).
+  ```sh
+  dsh-auth user add admin --password-stdin   # add a user
+  dsh-auth user list                          # list users
+  dsh-auth user disable admin                 # block a user's future logins
+  ```
 
-**Two mutually exclusive login flows** (choose one via `mode`):
-
-| Mode                    | Credential                                                                        | Bearer channel                                                      | Entry points                                                    |
-| ----------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `"token"` (default, M2) | Shared random token from `$DSH_HOME/.credentials.yaml` (env ref `DSH_AUTH_TOKEN`) | `Authorization: Bearer <token>` (constant-time compare)             | `GET/POST /auth/login`, `POST /auth/logout`, `GET /auth/status` |
-| `"password"` (M3)       | Username/password from `$DSH_HOME/auth/users.yaml` (scrypt hashes)                | `Authorization: Bearer <session token>` (session lookup, revocable) | same four endpoints + `dsh-auth` CLI                            |
-
-**Security properties** (both modes):
-
-- `HttpOnly; Secure; SameSite=Lax` session cookies (`cookieSecure` off for
-  http test environments); session tokens stored as SHA-256 digests;
-  256-bit random issuance, new session per login (anti-fixation);
-- Password mode: scrypt (`node:crypto`, N=2¹⁶ / r=8 / p=1), constant-time
-  verification with a dummy-hash path for unknown users (no enumeration),
-  uniform 401 for unknown/wrong/disabled accounts, users file re-read per
-  login (no restart needed), 0600 permission discipline;
-- Login rate limiting: per-IP + per-account buckets, exponential backoff
-  (30 s base, 15 min cap), `429 + retry-after` while locked;
-- Fail-closed: missing credentials/users file, unparseable file, or missing
-  session store all deny rather than silently allow; the guard self-check
-  aborts startup if anything is unwrapped.
-
-**CLI** (`dsh-auth`, bin shipped with the package):
+## Quick start
 
 ```sh
-dsh-auth user add admin --password-stdin     # create a user, hash written to users.yaml
-dsh-auth user list                            # list users (disabled marked)
-dsh-auth user disable admin                   # block new logins (existing sessions stay valid)
-# all subcommands accept --file <path>
+# 1. Install the plugin (build a tarball, copy it to your server)
+npm pack
+scp dsh-auth-gate-0.0.0.tgz your-server:/tmp/
+
+# 2. On the server, install it into your dsh profile
+dsh plugin --profile web add /tmp/dsh-auth-gate-0.0.0.tgz
+
+# 3. Create an admin account
+printf '%s\n' 'choose-a-strong-password' | dsh-auth user add admin --password-stdin
+
+# 4. Turn on password login: add the dsh-auth row to $DSH_HOME/cordis.patch.yml
+#    (a ready-to-use template ships in deploy/cordis.patch.yml; see Configuration)
+
+# 5. Restart dsh. Open your site — you will be asked to sign in.
 ```
-
-## Example session
-
-A typical deployment flow (run by you or your agent):
-
-1. **Pack & install** — `npm pack` → `scp dsh-auth-*.tgz server:/tmp/` →
-   `dsh plugin --profile web add /tmp/dsh-auth-*.tgz` (forwards to pnpm).
-2. **Create an admin** — `printf '%s\n' '<strong-password>' | dsh-auth user add admin --password-stdin`.
-3. **Configure** — copy [deploy/cordis.patch.yml](deploy/cordis.patch.yml) to
-   `$DSH_HOME/cordis.patch.yml`; set `mode: "password"` and keep
-   `cookieSecure: true` behind TLS.
-4. **Verify** — restart, then run the acceptance sequence
-   ([docs/deployment.md](docs/deployment.md) §4): unauthenticated requests are
-   rejected, login issues a session cookie, the Bearer session token passes the
-   gate, WS upgrades need a cookie, logout revokes, and the rate limiter
-   returns `429 + retry-after` after repeated failures.
-
-## Requirements
-
-- Node ≥ 22.19 (same as the target dsh deployment); pnpm for `dsh plugin add`
-  (server npm global prefix may need `--prefix ~/.npm-global`);
-- A working dsh web profile; TLS termination in front for
-  `cookieSecure: true` (curl/scripts are unaffected by `Secure`);
-- `--trusted-host` is orthogonal: it guards against DNS rebinding, it is not
-  authentication — configure both on a public instance.
-
-## Install
-
-The package is not published to npm (UNLICENSED). Install from a tarball:
-
-```sh
-# on the source machine
-npm pack                                  # produces dsh-auth-<version>.tgz
-scp dsh-auth-<version>.tgz server:/tmp/
-
-# on the server
-dsh plugin --profile web add /tmp/dsh-auth-<version>.tgz
-```
-
-Upgrade by repacking and re-adding; remove with
-`dsh plugin --profile web remove dsh-auth` (and delete the overlay row).
 
 ## Configuration
 
-Plugin row config (in `$DSH_HOME/cordis.patch.yml`):
+Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
+`deploy/cordis.patch.yml`). The `dsh-auth` row:
 
-| Field          | Default            | Meaning                                                                      |
-| -------------- | ------------------ | ---------------------------------------------------------------------------- |
-| `mode`         | `"token"`          | `"token"` (M2 shared token) or `"password"` (M3)                             |
-| `sessionTtl`   | `604800`           | Session TTL in seconds, fixed expiry from creation                           |
-| `cookieName`   | `dsh_auth`         | Session cookie name                                                          |
-| `tokenRef`     | `"DSH_AUTH_TOKEN"` | Token mode: credentials reference (env var name)                             |
-| `cookieSecure` | `true`             | Add `; Secure`; keep `false` only for http test environments                 |
-| `usersFile`    | `""`               | Password mode: users.yaml path; `""` = `${DSH_HOME:-~/.dsh}/auth/users.yaml` |
+```yaml
+- insert:
+    - id: dsh-auth
+      name: dsh-auth-gate
+      config:
+        mode: "password" # "password" (recommended) or "token"
+        cookieSecure: true # keep true when you use https
+```
 
-## Docs
+| Option         | Default            | What it does                                                                       |
+| -------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `mode`         | `"token"`          | `"password"` = username/password login; `"token"` = one shared secret              |
+| `sessionTtl`   | `604800`           | How long a login lasts (seconds) before you must sign in again                     |
+| `cookieName`   | `dsh_auth`         | Name of the session cookie (rarely needs changing)                                 |
+| `tokenRef`     | `"DSH_AUTH_TOKEN"` | Token mode only: which environment variable holds the shared secret                |
+| `cookieSecure` | `true`             | Set to `false` only if you are testing over plain http                             |
+| `usersFile`    | `""`               | Password mode: where your user list lives. Defaults to `$DSH_HOME/auth/users.yaml` |
 
-- Roadmap & threat model: [docs/dsh-auth-plan.md](docs/dsh-auth-plan.md)
-- Executable specs (authoritative for implementation):
-  [docs/impl-m1.md](docs/impl-m1.md) / [docs/impl-m2.md](docs/impl-m2.md) /
-  [docs/impl-m3.md](docs/impl-m3.md)
-- Deployment & acceptance checklist: [docs/deployment.md](docs/deployment.md)
-  - [deploy/cordis.patch.yml](deploy/cordis.patch.yml)
-- Development conventions: [docs/development.md](docs/development.md)
+## Requirements
 
-## Known limitations
+- Node ≥ 22.19 and pnpm on the server.
+- The dsh `web` profile running (`dsh --profile web`).
+- If `cookieSecure` is `true`, your site must be served over https (browsers
+  refuse secure cookies on plain http).
 
-- Disabling a user only blocks new logins; issued sessions stay valid until
-  their TTL (no `revokeBySubject` yet).
-- Rate limiting is in-memory (resets on restart) and keys on the socket peer
-  address — `X-Forwarded-For` is deliberately untrusted, so behind a reverse
-  proxy limits aggregate by the proxy's address.
-- No CSRF token on login (single-door model has no per-user isolation;
-  `SameSite=Lax` covers most cases; residual risk reassessed in M4).
-- No client-side GUI (logout button) yet.
+## Notes & limitations
+
+- Disabling a user only stops **new** logins; already-signed-in sessions stay
+  valid until they expire.
+- Login rate limiting resets when the server restarts.
+- Behind a reverse proxy, rate limiting counts by the proxy's address.
+- There is no logout button in the dsh interface yet — visit
+  `/auth/logout?next=/` to sign out.
+- The plugin only protects dsh's web surface. It is not a replacement for
+  server-level security: keep the server OS user locked down and the config
+  files private (`.credentials.yaml` and `auth/users.yaml` are created with
+  `0600` permissions).

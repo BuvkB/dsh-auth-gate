@@ -38,10 +38,10 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 dsh plugin --profile web add /tmp/dsh-auth-<version>.tgz   # --profile 在 plugin 之后（实测）
 ```
 
-- 安装后 `$DSH_HOME/profiles/web/package.json` 的 `dependencies` 含 `dsh-auth`；
+- 安装后 `$DSH_HOME/profiles/web/package.json` 的 `dependencies` 含 `dsh-auth-gate`；
   `dsh plugin` 转发 pnpm，依赖（`yaml`、`@deepseek-ai/*`）自动从公共 npm 解析。
 - 升级：重新 `npm pack` + `dsh plugin --profile web add <新 tarball>`（pnpm 覆盖升级）。
-- 卸载：`dsh plugin --profile web remove dsh-auth`（同时删 overlay 行）。
+- 卸载：`dsh plugin --profile web remove dsh-auth-gate`（同时删 overlay 行）。
 
 ## 2. 配置
 
