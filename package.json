@@ -1,6 +1,6 @@
 {
   "name": "dsh-auth-gate",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Application-layer authentication plugin for the dsh web surface",
   "type": "module",
   "license": "UNLICENSED",
@@ -26,11 +26,11 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TecFancy/dsh-auth-gate.git"
+    "url": "git+https://github.com/TecFancy/dsh-auth.git"
   },
-  "homepage": "https://github.com/TecFancy/dsh-auth-gate",
+  "homepage": "https://github.com/TecFancy/dsh-auth",
   "bugs": {
-    "url": "https://github.com/TecFancy/dsh-auth-gate/issues"
+    "url": "https://github.com/TecFancy/dsh-auth/issues"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
