@@ -33,7 +33,7 @@ dsh plugin --profile web add dsh-auth-gate
 # 2. 创建管理员账号
 printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
-# 3. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里加 dsh-auth 行
+# 3. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里加 dsh-auth-gate 行
 #    （仓库自带现成模板 deploy/cordis.patch.yml，见下方"配置"）
 
 # 4. 重启 dsh，打开你的站点——会先要求登录。
@@ -52,11 +52,11 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 ## 配置
 
 编辑 `$DSH_HOME/cordis.patch.yml`（复制仓库里的模板 `deploy/cordis.patch.yml`），
-`dsh-auth` 行：
+`dsh-auth-gate` 行：
 
 ```yaml
 - insert:
-    - id: dsh-auth
+    - id: dsh-auth-gate
       name: dsh-auth-gate
       config:
         mode: "password" # "password"（推荐）或 "token"
@@ -71,6 +71,12 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 | `tokenRef`     | `"DSH_AUTH_TOKEN"` | 仅令牌模式：共享秘密存在哪个环境变量里                       |
 | `cookieSecure` | `true`             | 只在纯 http 测试环境设为 `false`                             |
 | `usersFile`    | `""`               | 密码模式：用户列表文件位置。默认 `$DSH_HOME/auth/users.yaml` |
+
+## 部署
+
+- [反代部署指南](docs/reverse-proxy.zh.md) —— Caddy/nginx 配置、浏览器信任栅栏的坑
+  （反代后设置页 `403`，以及为什么只加认证修不了它）、推荐的半外壳拓扑。
+- [docs/deployment.md](docs/deployment.md) —— 运维清单、验收步骤（A–I）与故障诊断。
 
 ## 环境要求
 

@@ -1,6 +1,6 @@
-# dsh-auth 部署与验收清单
+# dsh-auth-gate 部署与验收清单
 
-本文档描述如何把 dsh-auth（password 模式，M3）部署到一个公网 dsh web 实例，并完成
+本文档描述如何把 dsh-auth-gate（password 模式，M3）部署到一个公网 dsh web 实例，并完成
 **部署验收**。适用于：实例已跑通 dsh web（`dsh --profile web`），需要加认证门。
 
 设计依据：`docs/dsh-auth-plan.md` §7/§8（无上游 PR 通道的限制、纵深防御）；
@@ -24,7 +24,7 @@
 
 ---
 
-## 1. 安装 dsh-auth（一次性）
+## 1. 安装 dsh-auth-gate（一次性）
 
 包已发布到 npm（`dsh-auth-gate`），一条命令装进目标 profile：
 
@@ -49,7 +49,7 @@ dsh plugin --profile web add dsh-auth-gate   # 转发 pnpm，从公共 npm 解�
    多管理员：重复 `user add`；禁用：`dsh-auth user disable <name>`。
 2. **overlay**：把仓库 `deploy/cordis.patch.yml` 复制为 `$DSH_HOME/cordis.patch.yml`，
    按需调整（`cookieSecure` 必须与 TLS 环境一致；非默认路径才设 `usersFile`）。
-3. 确认无其他行占用 `dsh-auth` id（patch 栈按 id 覆盖）。
+3. 确认无其他行占用 `dsh-auth-gate` id（patch 栈按 id 覆盖）。
 
 ## 3. 启动与健康检查
 
@@ -131,7 +131,7 @@ cookie jar 不检查 `Secure`，验收序列照常）；H 组的锁定次数会�
 
 | 症状                               | 原因                                              | 处理                                              |
 | ---------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
-| 启动失败 `guard self-check failed` | 包装未覆盖全部入口（dsh 版本变化）                | 升级 dsh-auth 或报告（勿绕过自检）                |
+| 启动失败 `guard self-check failed` | 包装未覆盖全部入口（dsh 版本变化）                | 升级 dsh-auth-gate 或报告（勿绕过自检）           |
 | 登录恒 401                         | 口令错误 / 用户禁用 / users.yaml 缺失（空用户集） | `dsh-auth user list`；确认 `$DSH_HOME` 与实例一致 |
 | 登录 503 `user store unavailable`  | users.yaml 语法/schema 错、权限过宽（非 600）     | `chmod 600`；`dsh-auth user list` 复现错误信息    |
 | 登录 429                           | 限速锁定（内存态，重启清零）                      | 等 `retry-after` 或重启实例                       |
@@ -146,3 +146,51 @@ cookie jar 不检查 `Secure`，验收序列照常）；H 组的锁定次数会�
 - [ ] 口令哈希为 scrypt（`docs/impl-m3.md` P1）；文件零明文。
 - [ ] 禁用用户只拦新登录（已发会话 TTL 内有效，M3 已知局限）。
 - [ ] 限速内存态重启清零；反代部署时限速按出口 IP 聚合（不信任 X-Forwarded-For）。
+
+## 8. 公网部署变体（2026-08-15 起，dsh.hi-ruofei.com 生效）：半外壳
+
+> 本文档 §1-§7 为"插件形态"（门卫进 dsh 进程）。2026-08-15 生产实证后，公网实例改用
+> **半外壳**变体；长期方向见 `docs/dsh-auth-plan.md` §9 M5（独立反代外壳）。
+
+### 8.1 为什么需要外壳：浏览器信任栅栏与认证正交
+
+dsh 0.1.0-rc.6 的 `dsh-client-connection` 把 `settings.*`/`credentials.*`/`llm.discoverModels`
+等 privileged 方法**钉死为仅 loopback**（PRIVILEGED_METHODS，`--trusted-host` 放不开）。
+公网反代下设置页的 `settings.describe`/`credentials.describe` 恒 403（"transport failure"），
+**与 dsh-auth-gate 无关**——移除门卫裸奔后 403 依旧（2026-08-15 实测）。
+
+实测 header 矩阵（登录后 cookie 访问 `/api/settings.describe`）：
+
+| 上游 Host                       | Origin        | 结果 |
+| ------------------------------- | ------------- | ---- |
+| `dsh.hi-ruofei.com`（原样透传） | 任意          | 403  |
+| `127.0.0.1:3080`（重写）        | 匹配 loopback | 200  |
+| `127.0.0.1:3080`（重写）        | 剥离          | 200  |
+| `127.0.0.1:3080`（重写）        | 不匹配        | 403  |
+
+### 8.2 半外壳拓扑（当前生产）
+
+```
+公网 dsh.hi-ruofei.com (Caddy, TLS)
+  └─ reverse_proxy 127.0.0.1:3080 {
+         header_up Host 127.0.0.1:3080   # 重写 Host → dsh 视为 loopback
+         header_up -Origin                # 剥离 Origin → 通过栅栏 Origin 匹配
+     }
+       └─ dsh web（含 dsh-auth-gate 门卫，认证逻辑不变）
+```
+
+- 效果：设置页 13 个 API 全 200、零 console 报错；登录/限速/吊销/Bearer 全保留；WS 101 正常。
+- 代价：dsh 浏览器信任栅栏被架空（Host 恒 loopback、Origin 恒缺）；由门卫补偿——会话 cookie
+  `SameSite=Lax` → 跨站/重绑定请求拿不到 cookie → 401。纵深防御从"栅栏 + 门卫"变为
+  "门卫 + SameSite"。
+- 回滚：`/etc/caddy/Caddyfile.bak.shell`（外壳前）与 `$DSH_HOME/cordis.patch.yml.bak`（门卫
+  停用态）已留档；还原后重启 dsh-web + reload caddy 即回插件形态。
+
+### 8.3 运维注意（半外壳特有）
+
+- 升级回归（§5）照跑；另加设置页冒烟：登录后点「设置」，确认无 `transport failure`、
+  无 403 console 报错。
+- `--trusted-host dsh.hi-ruofei.com` 在重写后已冗余（Host 恒 loopback），保留无害。
+- 会话仍为内存态：dsh-web 重启后所有浏览器需重新登录（旧 cookie 一律 401，属 fail-closed 正常）。
+- 裸奔测试教训：**不要**在无外壳无门卫状态下公网运行——agent 有工作区写权限且
+  `$DSH_HOME/.credentials.yaml` 含模型 API key，任何人可白嫖调用。
