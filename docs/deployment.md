@@ -44,7 +44,10 @@ dsh plugin --profile web add dsh-auth-gate   # forwards to pnpm, resolved from p
   `dsh-auth-gate`; dependencies (`yaml`, `@deepseek-ai/*`) are resolved automatically from public
   npm.
 - Upgrade: re-run the same command (pnpm pulls the new version).
-- Uninstall: `dsh plugin --profile web remove dsh-auth-gate` (also removes the overlay line).
+- Uninstall: `dsh plugin --profile web remove dsh-auth-gate` (since 0.4.1 the bundle
+  declaration makes `dsh plugin add` register the mount in `dsh.profile.bundles`, so
+  `remove` also drops it; a leftover `- id: dsh-auth-gate` config override in
+  `$DSH_HOME/cordis.patch.yml` becomes a no-op with a boot warning and can be deleted).
 
 ## 2. Configuration
 
@@ -55,9 +58,11 @@ dsh plugin --profile web add dsh-auth-gate   # forwards to pnpm, resolved from p
    dsh-auth user list                    # confirm
    ```
    Multiple administrators: repeat `user add`; disable: `dsh-auth user disable <name>`.
-2. **Overlay**: copy the repo's `deploy/cordis.patch.yml` to
-   `$DSH_HOME/cordis.patch.yml`, adjust as needed (`cookieSecure` must match the TLS
-   environment; only set `usersFile` for a non-default path).
+2. **Config override**: copy the repo's `deploy/cordis.patch.yml` to
+   `$DSH_HOME/cordis.patch.yml` — since 0.4.1 the template is a pure config
+   override (no `insert`; the mount itself is registered by `dsh plugin add` via
+   the `dsh.bundle` manifest). Adjust as needed (`cookieSecure` must match the
+   TLS environment; only set `usersFile` for a non-default path).
 3. Confirm no other line occupies the `dsh-auth-gate` id (the patch stack overrides by id).
 
 ## 3. Startup and Health Check

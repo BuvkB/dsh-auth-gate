@@ -37,7 +37,10 @@ dsh plugin --profile web add dsh-auth-gate   # 转发 pnpm，从公共 npm 解�
 - 安装后 `$DSH_HOME/profiles/web/package.json` 的 `dependencies` 含 `dsh-auth-gate`；
   依赖（`yaml`、`@deepseek-ai/*`）自动从公共 npm 解析。
 - 升级：重跑同一命令（pnpm 拉新版本）。
-- 卸载：`dsh plugin --profile web remove dsh-auth-gate`（同时删 overlay 行）。
+- 卸载：`dsh plugin --profile web remove dsh-auth-gate`（0.4.1 起插件声明了
+  `dsh.bundle`，`dsh plugin add` 会在 `dsh.profile.bundles` 里注册挂载，`remove`
+  也会一并移除；`$DSH_HOME/cordis.patch.yml` 里残留的 `- id: dsh-auth-gate`
+  配置覆盖行会变成空操作并带启动警告，可删除）。
 
 ## 2. 配置
 
@@ -47,8 +50,10 @@ dsh plugin --profile web add dsh-auth-gate   # 转发 pnpm，从公共 npm 解�
    dsh-auth user list                    # 确认
    ```
    多管理员：重复 `user add`；禁用：`dsh-auth user disable <name>`。
-2. **overlay**：把仓库 `deploy/cordis.patch.yml` 复制为 `$DSH_HOME/cordis.patch.yml`，
-   按需调整（`cookieSecure` 必须与 TLS 环境一致；非默认路径才设 `usersFile`）。
+2. **配置覆盖**：把仓库 `deploy/cordis.patch.yml` 复制为 `$DSH_HOME/cordis.patch.yml`
+   ——0.4.1 起该模板是纯配置覆盖（无 `insert`；挂载本身由 `dsh plugin add` 通过
+   `dsh.bundle` manifest 注册）。按需调整（`cookieSecure` 必须与 TLS 环境一致；
+   非默认路径才设 `usersFile`）。
 3. 确认无其他行占用 `dsh-auth-gate` id（patch 栈按 id 覆盖）。
 
 ## 3. 启动与健康检查
