@@ -78,6 +78,10 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 - dsh 的 `web` profile 正常运行（`dsh --profile web`）。
 - 如果 `cookieSecure` 是 `true`，站点必须走 https（浏览器在纯 http 下会拒绝安全 cookie）。
 
+## 许可证
+
+[MIT](./LICENSE)
+
 ## 注意事项与局限
 
 - 禁用用户只阻止**新**登录；已经登录的会话要等它自然过期。
