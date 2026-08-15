@@ -4,6 +4,18 @@
   "description": "Application-layer authentication plugin for the dsh web surface",
   "type": "module",
   "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "auth",
+    "authentication",
+    "login",
+    "password",
+    "token",
+    "security",
+    "access-control",
+    "rate-limiting"
+  ],
   "engines": {
     "node": ">=22.19.0"
   },
