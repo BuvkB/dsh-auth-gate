@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.0...v0.1.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **password-login:** clear failure buckets on successful login ([e41f8c7](https://github.com/TecFancy/dsh-auth-gate/commit/e41f8c7238bc3151b610e7c260dfe400aadccbb4))
+* **password-login:** clear failure buckets on successful login + MIT license and metadata cleanup ([ec40f01](https://github.com/TecFancy/dsh-auth-gate/commit/ec40f0117345ae71a00c0f132a68142b7c4874d2))
+
 ## 0.1.0 (2026-08-15)
 
 
