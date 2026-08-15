@@ -8,6 +8,8 @@ dsh web 的应用层认证插件：为公网部署的 dsh web 实例提供登录
   [docs/impl-m1.md](docs/impl-m1.md) / [docs/impl-m2.md](docs/impl-m2.md) /
   [docs/impl-m3.md](docs/impl-m3.md)
 - 交接文档：[docs/handoff-m2.md](docs/handoff-m2.md)
+- 部署与验收清单（生产 patch 模板）：[docs/deployment.md](docs/deployment.md) /
+  [deploy/cordis.patch.yml](deploy/cordis.patch.yml)
 - 开发规范与工程门禁：[docs/development.md](docs/development.md)
 - 供 AI 编码代理的仓库规则：[AGENTS.md](AGENTS.md)
 

@@ -104,5 +104,7 @@ mountAuthEndpoints(...))` 里，mountAuthEndpoints 必须**立即执行注册并
 
 ## 6. 开放问题 / 待定
 
-- 无阻塞项。候选后续：M4 规格（TOTP）、部署侧交付物（正式 `cordis.patch.yml` 生产 patch +
-  部署验收清单，handoff-m2 §6 遗留）、GUI 登出按钮（client 半边）。
+- 部署侧交付物已完成并实测：`deploy/cordis.patch.yml`（生产 overlay 模板）+ `docs/deployment.md`
+  （部署与验收清单）——已在服务器按文档流程走通（`npm pack` → `dsh plugin --profile web add`
+  → 包名引用 overlay → 验收序列 A–H 全绿，含 `cookieSecure: true` 的 `; Secure` cookie）。
+- 无阻塞项。候选后续：M4 规格（TOTP）、GUI 登出按钮（client 半边）。
