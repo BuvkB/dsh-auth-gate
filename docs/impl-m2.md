@@ -30,7 +30,7 @@ M1 的守卫/会话/自检全部复用，**不改其行为**；本里程碑只�
 | #   | 决策         | 冻结值                                                                                                                                                                                                                                                                                                                                       |
 | --- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M1  | gate 替换    | `apply` 用 `TokenGate` 实例替换 `noopGate`；`AuthService.gate` 字段保持可写（测试注入、M3 换门兼容）                                                                                                                                                                                                                                         |
-| M2  | token 来源   | config `tokenRef: string` = credentials 引用名（环境变量名），默认 `"DSH_AUTH_TOKEN"`；**每次 decide 经 `ctx.credentials.resolve(tokenRef)` 重新解析**（credentials 服务 per-operation 语义，改凭证无需重启）；credentials 服务缺失 → 启动 `log.error` + 门**恒 deny**（fail-closed）                                                        |
+| M2  | token 来源   | config `tokenRef: string` = credentials 引用名（环境变量名），默认 `"DSH_AUTH_TOKEN"`；**每次 decide 经 `ctx.credentials.resolve(tokenRef)` 重新解析**（credentials 服务 per-operation 语义，改凭证无需重启）；credentials 服务缺失 → **首次解析时** `log.error` + 门**恒 deny**（fail-closed；告警惰性触发——见 §3.1 挂载竞态）              |
 | M3  | 校验方式     | 恒时比较：`crypto.timingSafeEqual(sha256(input), sha256(stored))`（双方先哈希再比较，长度恒等；`safeEqual(input, stored)` 导出可测）                                                                                                                                                                                                         |
 | M4  | 公共路径     | `TokenGate` 恒放行 `/auth` 与 `/auth/*`（常量 `AUTH_PATH_PREFIX = "/auth"` 放 `guard.ts`）；兜底前缀 + 三个 exact 端点经**包装后的** `register` 注册（被守卫包装但被 gate 放行——与 plan §5 白名单一致，自检无缺口、重启自愈；不做独立白名单配置项）                                                                                          |
 | M5  | 端点集       | `GET /auth/login`（自包含 HTML）、`POST /auth/login`（urlencoded：`token` + `next`）、`POST /auth/logout`、`GET /auth/status`（JSON `{ authenticated: boolean }`）。路由模型见 M15（3 exact + 1 prefix 兜底）；`/auth/status` **只认 cookie**（Bearer 不参与——无状态通道不建会话，不是"会话状态"）                                           |
@@ -60,6 +60,10 @@ M1 的守卫/会话/自检全部复用，**不改其行为**；本里程碑只�
 
 - **web 组合自带**：`dsh-base` bundle 的 `credentials` 行 = `@deepseek-ai/dsh-credentials-local`（读
   `$DSH_HOME/.credentials.yaml`，env 层优先于文件层；**每次 resolve 重新读取**，改文件无需重启）。
+- **挂载竞态（实测）**：harness **并行挂载行**——credentials 行（dsh-base）可能在本插件（用户层）
+  apply **之后**才就绪（服务器冒烟实测：apply 时 `ctx.get("credentials") === undefined`，数秒后
+  可见）。因此解析器**每次 resolve 惰性 `ctx.get("credentials")`**（§4.6 item 3），缺失告警也在
+  首次解析时触发——既是 M2 的 per-operation 语义，也天然规避竞态（M2 行冻结值已同步修订）。
 - 服务面：`ctx.credentials.resolve(ref): Promise<{ value: string; source: string } | undefined>`
   （ref 是环境变量名形式的字符串；未配置 → `undefined`）。我们**不 import 包类型**，用结构类型：
   ```ts
@@ -75,9 +79,10 @@ M1 的守卫/会话/自检全部复用，**不改其行为**；本里程碑只�
   （`chmod 600`）。**集成测试不挂真实 provider**（M18：零新增依赖）——用结构型假 provider
   `ctx.provide("credentials", { resolve })` 先于本插件挂载；真实 provider 的 env 层优先语义
   （`process.env[tokenRef]` 可直接供冒烟）在服务器侧验证。
-- 服务缺失（`ctx.get("credentials") === undefined`）：启动 `log.error("credentials service is
-unavailable: gate denies everything (fail-closed)")`；`TokenGate` 的 resolver 返回 `undefined` →
-  所有凭证校验失败 → 恒 deny（但白名单 `/auth/*` 仍放行，登录页可见、登录不可用——可诊断）。
+- 服务缺失（首次解析时 `ctx.get("credentials") === undefined`，惰性）：`log.error("credentials
+service is unavailable: gate denies everything (fail-closed)")` 一次；`TokenGate` 的 resolver
+  返回 `undefined` → 所有凭证校验失败 → 恒 deny（但白名单 `/auth/*` 仍放行，登录页可见、登录
+  不可用——可诊断）。
 
 ### 3.2 node 内建（本包静态形态，均可用）
 
@@ -260,27 +265,39 @@ store.getByToken(token) !== undefined;`
    （`pattern` 与 dsh-credentials 的 credential-ref 模式一致，同时挡住空串。）
    `AuthConfig` 接口同步（`mode`/`sessionTtl`/`cookieName` 不变）。
 2. `apply` 开头：`if (config.mode === "password") throw new Error("dsh-auth: password flow requires M3 (not implemented in M2)");`（在 `void config` 处改为真正使用 config）。
-3. credentials 解析器（替换 M1 的 `void config`）：
+3. credentials 解析器（替换 M1 的 `void config`）——**惰性取服务**（§3.1 挂载竞态：credentials 行
+   可能在本行 apply 之后才就绪，每次 resolve 现取 `ctx.get("credentials")`）：
    ```ts
    /** credentials 服务的结构镜像（§3.1）；本文件私有，不导出。 */
    interface CredentialRefResolver {
      resolve(ref: string): Promise<{ value: string; source: string } | undefined>;
    }
-   const credentials = ctx.get("credentials") as unknown as CredentialRefResolver | undefined;
-   const resolveToken = async (): Promise<string | undefined> => {
-     if (credentials === undefined) return undefined;
-     try {
-       const resolved = await credentials.resolve(config.tokenRef);
-       return resolved?.value;
-     } catch (error) {
-       log.error(
-         `token resolution failed: ${error instanceof Error ? error.message : String(error)}`,
-       );
-       return undefined; // fail-closed：解析失败 = 无凭证
-     }
-   };
-   if (credentials === undefined) {
-     log.error("credentials service is unavailable: gate denies everything (fail-closed)");
+   /** 返回 resolveToken；服务缺失告警只在首次解析时触发一次（fail-closed，可诊断）。 */
+   function makeTokenResolver(
+     ctx: Context,
+     config: AuthConfig,
+     log: { error(message: unknown): void },
+   ): () => Promise<string | undefined> {
+     let warnedMissing = false;
+     return async () => {
+       const credentials = ctx.get("credentials") as unknown as CredentialRefResolver | undefined;
+       if (credentials === undefined) {
+         if (!warnedMissing) {
+           warnedMissing = true;
+           log.error("credentials service is unavailable: gate denies everything (fail-closed)");
+         }
+         return undefined;
+       }
+       try {
+         const resolved = await credentials.resolve(config.tokenRef);
+         return resolved?.value;
+       } catch (error) {
+         log.error(
+           `token resolution failed: ${error instanceof Error ? error.message : String(error)}`,
+         );
+         return undefined; // fail-closed：解析失败 = 无凭证
+       }
+     };
    }
    ```
 4. 装配门（M16）：替换 M1 第 3 步的 `{ sessions: undefined, gate: noopGate }`，`auth` 对象**一步成型**：
@@ -349,7 +366,10 @@ error 日志、Config 默认值补 `tokenRef`/`cookieSecure`、fake ctx 增加 `
 `application/x-www-form-urlencodedx` → 415（全等判定，M10）；超 16 KiB → 413 且**不调用
 `req.destroy()`**（fake req 记录 destroy 调用次数，M19）。
 
-**`src/auth-endpoints.test.ts`** — fake register（记录路由 + 返回 disposer）+ fake sessions（访问器形态）+ fake validateToken：
+**`src/auth-endpoints.test.ts`**（按文件行数上限拆为三个文件：`auth-endpoints.test.ts` 覆盖注册形状/
+GET login/logout/status，`auth-endpoints.login.test.ts` 覆盖 POST login，`auth-endpoints.methods.test.ts`
+覆盖 405/兜底/loginPageHtml——测试矩阵合并描述）— fake register（记录路由 + 返回 disposer）+ fake
+sessions（访问器形态）+ fake validateToken：
 
 1. 注册形状：4 条路由——prefix `/auth`、exact `/auth/login`、`/auth/logout`、`/auth/status`（M15）。
 2. GET login：200 + HTML 含 `<form`、hidden next 已 escape（`next="/x?a=1&b=2"` → HTML 里 `&amp;`）；已认证态（`sessions()` 有有效会话）也恒 200 渲染（不重定向，M20）。
@@ -363,7 +383,9 @@ error 日志、Config 默认值补 `tokenRef`/`cookieSecure`、fake ctx 增加 `
 10. prefix `/auth` 兜底：`/auth/whatever` → 404 + no-store（M20）。
 11. 413：body 超限 → 413 + `connection: close` 头 + 不调 `req.destroy`（M19）。
 
-**`src/integration.auth.test.ts`**（真实入口路径）— 真实 cordis + 真实 WebServer + **结构型假
+**`src/integration.auth.test.ts`**（真实入口路径）— 真实 cordis + **真实 storage 栈**
+（Storage → storage-json → storage-domain，挂载顺序同 M1 `integration.session.test.ts`；否则
+`sessions` 恒 undefined → 登录恒 503）+ 真实 WebServer + **结构型假
 credentials provider**（M18：`ctx.provide("credentials", { resolve: async (ref) => ref === "DSH_AUTH_TOKEN" ? { value: TEST_TOKEN, source: "test" } : undefined })`，
 **先于本插件挂载**；`TEST_TOKEN` 随机生成、永不进快照）+ 本插件（config `{ cookieSecure: false }`，http 无 TLS）：
 

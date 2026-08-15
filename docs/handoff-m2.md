@@ -15,9 +15,9 @@ M1（守卫 + 持久化会话 + 自检）已交付并在**真实 Ubuntu 服务�
 
 - 分支：`development`（开发唯一分支；`main` 只收 merge；**永不直接提交 main**）。
 - 远端 `origin/development` 已同步到 `4b5f712`（M1 全部提交已推，CI 对最新提交**全绿**）；无 open PR。
-- 本地 HEAD `c184dbc`（M2 规格审查修订：M15–M22 冻结决策 + 冒烟序列，**未推**）；工作区干净。
-  提交历史：`02c6f73`（spec+skills 基线）→ `eedfda9`（deps）→ `168b41e`（M1 实现）→ `4b5f712`
-  （spec 修正）→ `c184dbc`（M2 规格最终化）。
+- 本地 `development` 已含 M2 规格最终化（`c184dbc` + `bbe39bd`）与 **M2 实施提交**（未推）；工作区状态
+  以 `git status` 为准。提交历史：`02c6f73`（spec+skills 基线）→ `eedfda9`（deps）→ `168b41e`（M1 实现）
+  → `4b5f712`（spec 修正）→ `c184dbc`/`bbe39bd`（M2 规格最终化）→ M2 实施提交。
 - M2 实施后**提交纪律**：未获用户指令不 commit/push；commit 用 Conventional Commits；`lib/` 与 `src/`
   同批提交（CI 有 parity gate）。
 
@@ -112,7 +112,9 @@ chmod 600 ~/dsh-smoke/.credentials.yaml`
          config:
            cookieSecure: false # http 测试环境；生产默认 true
    ```
-   （探针行保留或删除皆可——保留则 `/__auth_probe` 继续可测。）
+   **M1 遗留的探针行必须删除**（M2 实测：`probe.mjs` 会 `ctx.auth.gate = 自己的门`——保留则
+   `/__auth_probe` 测的是探针门而不是真实 TokenGate，冒烟全假）。`/__auth_probe` 路径本身仍可测
+   （无路由 → fallback → 被守卫 → 302/401；带 cookie → SPA 200）。
 4. 重启实例（§3.2），验证序列（在服务器上，cookie 用 `curl -c jar -b jar` 维护）：
    - `GET /__auth_probe` 无 cookie：HTML accept → 302；JSON accept → 401（**这次是真的守卫**，不再是探针门）；
    - `GET /auth/login` → 200 HTML；`GET /auth/whatever` → 404（兜底，非 SPA fallback）；
@@ -128,6 +130,13 @@ http://127.0.0.1:3081/api/events.host`：无 cookie → 首行 `HTTP/1.1 401`；
      原 cookie 再 `GET /__auth_probe` → 401。
 5. 收尾：杀掉实例或留用（报告状态）。
 
+**M2 冒烟调试技巧（实测有效）**：
+
+- `dsh --profile web --dump-config` 看最终组合树（行 id、config、顺序），不必猜。
+- 诊断插件/路由**挂在 `/auth/*` 前缀下**（如 `/auth/__diag`）才能绕过门直接 curl——门白名单放行
+  `/auth/*`，exact 优先于兜底 prefix。
+- 插件内 `console.log` 会进 `boot.log`（`ctx.logger` 的输出不一定落盘）——诊断首选 console.log。
+
 ## 6. M2 特有执行注意（规格之外的提醒）
 
 - **凭证永不落日志**：token 值、session token 只出现在响应与内存；`resolveToken` 失败只记消息。
@@ -135,7 +144,25 @@ http://127.0.0.1:3081/api/events.host`：无 cookie → 首行 `HTTP/1.1 401`；
   **集成测试不挂真实 provider**（规格 M18：零新增依赖）——用结构型假 provider
   `ctx.provide("credentials", { resolve })` 先于本插件挂载；真实 provider 只在服务器冒烟覆盖
   （§5.2 的 `.credentials.yaml`，记得 0600；env 层优先——`process.env.DSH_AUTH_TOKEN` 也可直接供冒烟）。
+- **挂载竞态（M2 冒烟实测，必读）**：harness **并行挂载行**——`credentials` 行（dsh-base）可能在
+  dsh-auth（用户层）apply **之后**才就绪。**不要在 apply 时读 `ctx.get("credentials")`**——解析器
+  必须每次 resolve 惰性现取（规格 §3.1/§4.6 已冻结）；否则真实组合里登录恒 401、Bearer 恒拒绝，
+  而集成测试（顺序挂载）全绿——冒烟才能暴露。`storageDomain` 无此竞态（与 webServer 同 bundle，
+  inject 保证可见）。
 - `mode: "password"` 在 M2 会抛错（fail loud）——规格 M11，别当成 bug。
+- **集成测试登录流程必须挂真实 storage 栈**（Storage → storage-json → storage-domain，见
+  `integration.auth.test.ts`）：只挂 WebServer 时 `auth.sessions` 恒 undefined → 登录恒 503
+  （fail-closed，不是 bug）——首次实现就踩了。
+- **lint 行数陷阱**：`max-lines` 计数 **skipBlankLines**（格式化后重排会把文件推过 250 上限，先
+  prettier 再数）；`max-lines-per-function` 把 describe 回调整体当函数计——大套件必须按 describe
+  拆（auth-endpoints 测试因此拆成三个文件）。
+- **`KvTable` 真实接口比 impl-m1 §2.2 列的多**：还要实现 `keys()` 与 `update()`，否则测试里
+  `implements KvTable` 直接类型错误（MemTable 以 session-store.test.ts 的为准）。
+- **eslint 类型解析退化**：`Array.isArray(x) ? x[0] : x` 再链式 `?.split()[0]` 会被判 `any`（
+  no-unsafe-* 报错）——用 `typeof x === "string"` 收窄（form-body.ts 踩过）。
+- **服务器进程管理**：`pkill -f "dsh --profile web --port 3081"` 会匹配到执行它的 shell 自身
+  （命令行含同样字符串）→ 自杀 + exit 255。用 `pkill -f "[d]sh --profile web --port 3081"`
+  （括号技巧），且 kill 与启动分两个 ssh 调用（启动命令的 nohup 行同样会命中 pkill）。
 - M2 完成后的下一步候选：正式生产 `cordis.patch.yml`（name 用 npm 包名而非路径）+ 部署验收清单
   （plan §8：auth 行健康检查、TLS 前置、`--trusted-host` 正交说明）。
 

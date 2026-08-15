@@ -32,12 +32,17 @@ Run tests by name: `npm run test -- -t "guard"`
 
 ```
 src/
-├── index.ts          # plugin entry: name / inject / Config / apply + auth 服务接线
-├── guard.ts          # webServer 路由/升级/fallback 包装与拒绝管线
-├── gate.ts           # Gate 词表 + noopGate（M2 换真门）
-├── session-store.ts  # storage-domain 会话持久化
-├── self-check.ts     # 包装覆盖自检（fail loud）
-├── *.test.ts         # 单元测试（显式 vitest import）
+├── index.ts           # plugin entry + auth 服务接线 + credentials 解析器（M2 改装配）
+├── guard.ts           # webServer 路由/升级/fallback 包装与拒绝管线 + AUTH_PATH_PREFIX
+├── gate.ts            # Gate 词表 + noopGate（M2 换真门）
+├── token-gate.ts      # TokenGate：白名单/cookie/Bearer + safeEqual（M2 新增）
+├── cookie.ts          # Cookie 头解析（M2 新增）
+├── form-body.ts       # urlencoded body 读取（M2 新增）
+├── login-page.ts      # 自包含登录页（M2 新增）
+├── auth-endpoints.ts  # /auth 兜底前缀 + 三个 exact 端点（M2 新增）
+├── session-store.ts   # storage-domain 会话持久化（buildSetCookie 加参）
+├── self-check.ts      # 包装覆盖自检（fail loud）
+├── *.test.ts          # 单元测试（显式 vitest import）
 └── integration.*.test.ts  # 真实 cordis/webserver/storage 栈集成测试
 
 lib/                # build output — COMMITTED (see below), never hand-edited
