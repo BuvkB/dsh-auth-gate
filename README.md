@@ -1,4 +1,4 @@
-# dsh-auth
+# dsh-auth-gate
 
 **English** | [简体中文](README.zh.md)
 
