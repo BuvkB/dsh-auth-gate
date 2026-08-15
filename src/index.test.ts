@@ -92,9 +92,9 @@ async function flush(): Promise<void> {
 function bearerReq(token: string): IncomingMessage {
   return { headers: { authorization: `Bearer ${token}` } } as IncomingMessage;
 }
-describe("dsh-auth plugin shape", () => {
+describe("dsh-auth-gate plugin shape", () => {
   it("uses the stable plugin name and inject list", () => {
-    expect(name).toBe("dsh-auth");
+    expect(name).toBe("dsh-auth-gate");
     expect(inject).toContain("webServer");
   });
 });

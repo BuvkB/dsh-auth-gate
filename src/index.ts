@@ -13,7 +13,7 @@ import { safeEqual, TokenGate } from "./token-gate.js";
 import { defaultUsersFilePath, loadUsersFile } from "./users-file.js";
 
 /** 稳定 Cordis 插件名（host 组合行 id）。 */
-export const name = "dsh-auth";
+export const name = "dsh-auth-gate";
 
 /** 硬依赖：守卫包装 webServer 的路由表；storageDomain/credentials 软读（见 apply）。 */
 export const inject = ["webServer"] as const;
@@ -195,7 +195,7 @@ function mountAuthEndpoints(
 export function apply(ctx: Context, config: AuthConfig): void {
   const server = ctx.get("webServer") as unknown as WrappableServer | undefined;
   if (server === undefined) return;
-  const log = ctx.logger("dsh-auth");
+  const log = ctx.logger("dsh-auth-gate");
 
   const resolveToken = config.mode === "token" ? makeTokenResolver(ctx, config, log) : undefined;
   const usersPath = config.usersFile === "" ? defaultUsersFilePath() : config.usersFile;
@@ -217,20 +217,20 @@ export function apply(ctx: Context, config: AuthConfig): void {
 
   const sessionDisposer = mountSessionDomain(ctx, auth, log);
   if (sessionDisposer !== undefined) {
-    ctx.effect(sessionDisposer, "dsh-auth: session domain");
+    ctx.effect(sessionDisposer, "dsh-auth-gate: session domain");
   }
 
   const unwrap = wrapServer(server, () => auth.gate, log);
-  ctx.effect(() => unwrap, "dsh-auth: guard unwrap");
+  ctx.effect(() => unwrap, "dsh-auth-gate: guard unwrap");
 
   ctx.effect(
     () => mountAuthEndpoints(server, config, auth, resolveToken, usersPath, limiter, log),
-    "dsh-auth: auth endpoints",
+    "dsh-auth-gate: auth endpoints",
   );
 
   const failures = assertGuarded(server);
   if (failures.length > 0) {
     for (const failure of failures) log.error(`unwrapped entry: ${failure}`);
-    throw new Error(`dsh-auth: guard self-check failed: ${failures.join(", ")}`);
+    throw new Error(`dsh-auth-gate: guard self-check failed: ${failures.join(", ")}`);
   }
 }

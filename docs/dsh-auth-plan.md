@@ -240,9 +240,61 @@ export function apply(ctx, config) {
 | M2   | 阶段 1：随机 token 门（credentials 引用 + Bearer + 登录页发 cookie）                | ✅ 完成：可部署的公网最小防护          |
 | M3   | 阶段 2：users.yaml + 口令哈希（**scrypt**，见下注）+ 登录限速 + `dsh-auth user` CLI | ✅ 完成：真正登录                      |
 | M4   | 阶段 3：TOTP 两段式登录 + 配置项                                                    | OTP 加固                               |
+| M5   | 独立反代外壳模式（proxy shell）：自身监听公网 + 反代裸 dsh + Host/Origin 重写       | 规划中（2026-08-15 记录，待排期）      |
 
 > M3 注：口令哈希按用户拍板选用 `node:crypto` **scrypt**（N=2¹⁶/r=8/p=1，零新增原生依赖；
 > 规格 `docs/impl-m3.md` P1/P2），替代本节初稿中的 argon2id/bcryptjs 候选。
+
+### M5（规划）：独立反代外壳模式（standalone proxy shell）
+
+> 2026-08-15 由生产部署实证驱动立项；排期前先读 `docs/deployment.md` §8（半外壳生产拓扑与
+> 栅栏事实表）。
+
+**背景（实证结论）**：dsh 0.1.0-rc.6 的浏览器信任栅栏把 `settings.*` / `credentials.*` /
+`llm.discoverModels` 等 privileged 方法钉死为仅 loopback（`dsh-client-connection`
+`PRIVILEGED_METHODS`，`--trusted-host` 放不开）。公网反代下这些端点恒 403。实测矩阵：
+
+| 上游 Host                   | Origin        | privileged API |
+| --------------------------- | ------------- | -------------- |
+| `dsh.hi-ruofei.com`（现状） | 任意          | 403            |
+| `127.0.0.1:3080`（重写）    | 匹配 loopback | 200            |
+| `127.0.0.1:3080`（重写）    | 剥离          | 200            |
+| `127.0.0.1:3080`（重写）    | 不匹配        | 403            |
+
+结论：**"让 dsh 以为自己在 loopback"与认证必须由同一层外壳承担**——只加认证壳而不重写
+Host/Origin 无效（栅栏与认证正交）。
+
+**目标**：dsh-auth-gate 增加独立部署形态——以 bare cordis 上下文启动（独立挂载范式见仓库根
+`.serve-login.tmp.mjs`），自身监听公网端口，内置反代到"裸 dsh"（零插件），自动重写
+Host/Origin 头；登录页/会话/限速/Bearer/登出沿用现有 gate 逻辑并覆盖代理入口。
+
+**收益**：
+
+- dsh 实例零插件零耦合；升级 dsh 无守卫兼容性风险（现插件形态每次升级须跑 deployment.md §5 回归）；
+- 设置页/凭证管理公网下完整可用（privileged 403 消失，无需 SSH 隧道）；
+- 外壳独立版本化、独立发布，与插件形态共享 gate/session 代码（需抽象公共层）。
+
+**技术要点**：
+
+- 代理层：cordis `webServer` 注册 catch-all 反代路由（转发 + header 重写）+ upgrade 通道透传（WS 101）；
+- header 规则（已实测）：`Host: 127.0.0.1:<上游端口>` + 剥离 `Origin`（或重写为 loopback
+  origin）；`Sec-Fetch-Site: cross-site` 仍被栅栏拒（保留，纵深防御）；跨站 cookie 由门卫
+  `SameSite=Lax` 兜底；
+- 会话 cookie `Secure` 依赖外壳 TLS 终结（沿用 deployment.md 前置条件）；
+- 形态入口建议：`dsh-auth proxy --upstream 127.0.0.1:3080 --port 8443`（password/token 模式配置不变）。
+
+**验收标准**（沿用 deployment.md §4 精神）：
+
+- 未认证：HTML 302 登录页 / API 401；登录后 `settings.describe`/`credentials.describe`/
+  `settings.update` 200；WS 带 cookie 101、无 cookie 401；
+- 公网浏览器全流程：登录 → 设置页零 transport failure → 聊天流式正常；
+- 裸 dsh 侧无插件、不需要 `--trusted-host`（Host 恒 loopback）。
+
+**依赖/风险**：
+
+- 反代需处理 streaming/SSE/WS/大 body（dsh 请求体上限 167772160 字节）；
+- 代理层是新攻击面：header 重写正确性优先；上游固定（127.0.0.1），SSRF 面小；
+- 与插件形态并存期维护双入口，spec 需先抽象公共 gate/session 层（建议 M5 首步）。
 
 ---
 

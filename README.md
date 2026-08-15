@@ -38,7 +38,7 @@ dsh plugin --profile web add dsh-auth-gate
 # 2. Create an admin account
 printf '%s\n' 'choose-a-strong-password' | dsh-auth user add admin --password-stdin
 
-# 3. Turn on password login: add the dsh-auth row to $DSH_HOME/cordis.patch.yml
+# 3. Turn on password login: add the dsh-auth-gate row to $DSH_HOME/cordis.patch.yml
 #    (a ready-to-use template ships in deploy/cordis.patch.yml; see Configuration)
 
 # 4. Restart dsh. Open your site — you will be asked to sign in.
@@ -57,11 +57,11 @@ After signing in, they land on your instance:
 ## Configuration
 
 Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
-`deploy/cordis.patch.yml`). The `dsh-auth` row:
+`deploy/cordis.patch.yml`). The `dsh-auth-gate` row:
 
 ```yaml
 - insert:
-    - id: dsh-auth
+    - id: dsh-auth-gate
       name: dsh-auth-gate
       config:
         mode: "password" # "password" (recommended) or "token"
@@ -76,6 +76,15 @@ Edit `$DSH_HOME/cordis.patch.yml` (copy the shipped template from
 | `tokenRef`     | `"DSH_AUTH_TOKEN"` | Token mode only: which environment variable holds the shared secret                |
 | `cookieSecure` | `true`             | Set to `false` only if you are testing over plain http                             |
 | `usersFile`    | `""`               | Password mode: where your user list lives. Defaults to `$DSH_HOME/auth/users.yaml` |
+
+## Deployment
+
+- [Reverse-proxy deployment guide](docs/reverse-proxy.md) — Caddy/nginx
+  setups, the browser-trust fence gotcha (Settings-page `403`s behind a proxy,
+  and why auth alone doesn't fix them), and the recommended semi-shell
+  topology.
+- [`docs/deployment.md`](docs/deployment.md) — ops checklist, acceptance steps
+  (A–I) and troubleshooting (Chinese).
 
 ## Requirements
 
