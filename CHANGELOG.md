@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.1...v0.1.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ci:** pass release_created through job outputs so publish can run ([2af5e56](https://github.com/TecFancy/dsh-auth-gate/commit/2af5e563c66eb3d855604edf9973e8e2dd2d7062))
+* **ci:** pass release_created through job outputs so publish can run ([a894966](https://github.com/TecFancy/dsh-auth-gate/commit/a894966bcca15852700b329cd8018716d0a8e36f))
+
 ## [0.1.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.0...v0.1.1) (2026-08-15)
 
 
