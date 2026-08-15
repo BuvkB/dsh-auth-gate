@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.2.0...v0.3.0) (2026-08-15)
+
+
+### Features
+
+* **package:** add npm keywords for discoverability ([00efe5f](https://github.com/TecFancy/dsh-auth-gate/commit/00efe5f4590ac8da9f65249703c400c3b22860bc))
+* **package:** add npm keywords for discoverability ([479bb9d](https://github.com/TecFancy/dsh-auth-gate/commit/479bb9d79294aa5f7c7271c7abcd24214d7d78a7))
+
 ## [0.2.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.2...v0.2.0) (2026-08-15)
 
 
