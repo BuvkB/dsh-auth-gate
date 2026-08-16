@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.4.0...v0.5.0) (2026-08-15)
+
+
+### Features
+
+* declare dsh.bundle manifest for one-command mounting ([c6a08cd](https://github.com/TecFancy/dsh-auth-gate/commit/c6a08cdd6d9d2dfad9bf2b117f1839beb8b1992f))
+* declare dsh.bundle manifest for one-command mounting ([3fa9c0f](https://github.com/TecFancy/dsh-auth-gate/commit/3fa9c0f5861be91e03bdcc4f3b43f93a37067665))
+
 ## [0.4.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.4.0...v0.4.1) (2026-08-15)
 
 
