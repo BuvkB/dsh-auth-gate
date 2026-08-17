@@ -22,7 +22,7 @@ export default [
     clean: false,
     external: CLIENT_EXTERNALS,
     define: {
-      "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV ?? "production"),
+      "process.env.NODE_ENV": JSON.stringify(process.env["NODE_ENV"] ?? "production"),
     },
     noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     outputOptions: {
