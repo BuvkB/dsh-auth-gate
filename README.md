@@ -57,9 +57,12 @@ After signing in, they land on your instance:
 
 ![dsh instance](docs/demo/dashboard.png)
 
-A Sign out button sits at the sidebar foot, next to Settings:
+A Sign out button sits at the sidebar foot, next to Settings — expanded
+sidebar and collapsed rail states:
 
-![Sign out button](docs/demo/logout-button.png)
+![Sign out button, expanded sidebar](docs/demo/logout-sidebar-wide.png)
+
+![Sign out button, collapsed sidebar rail](docs/demo/logout-sidebar-rail.png)
 
 ## Configuration
 
