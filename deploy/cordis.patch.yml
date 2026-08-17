@@ -1,22 +1,26 @@
-# 生产 overlay 模板（dsh-auth-gate）
+# 生产配置覆盖模板（dsh-auth-gate）
 #
-# 用法：复制到 $DSH_HOME/cordis.patch.yml 并按部署环境调整（见 docs/deployment_zh.md）。
-# 前置条件：dsh-auth-gate 已安装到 profile（dsh plugin --profile web add <tarball>），
+# 0.4.1 起插件声明了 dsh.bundle manifest：`dsh plugin --profile web add dsh-auth-gate`
+# 会自动注册挂载（dsh.profile.bundles），无需再手动 insert 挂载行。
+#
+# 本模板只做「配置覆盖」：把下面的条目（不带 insert）放入 $DSH_HOME/cordis.patch.yml
+# 或 profile 的 cordis.patch.yml，即可覆盖 bundle 默认配置（默认 mode: "token"）。
+#
+# 前置条件：dsh-auth-gate 已安装到 profile（dsh plugin --profile web add dsh-auth-gate），
 #           $DSH_HOME/auth/users.yaml 已用 `dsh-auth user add` 建好（chmod 600）。
 #
 # 注意：
-# - name 是包名（非路径）；id 与 name 一致即可。
+# - id 必须与 bundle 挂载行的 id 一致（dsh-auth-gate），否则覆盖不会命中（启动时会
+#   有 "patch: entry not found" 警告）。
 # - cookieSecure 依赖 HTTPS 前置终结（TLS 反代）。纯 http 测试环境必须 false，
 #   否则浏览器不会保存会话 cookie（curl 不受影响）。
-# - 本文件复制到 $DSH_HOME 后即成为该实例的认证门；删除本行 = 实例裸奔（fail-closed
-#   纪律：验收清单含"auth 行健康"检查）。
-- insert:
-    - id: dsh-auth-gate
-      name: dsh-auth-gate
-      config:
-        mode: "password"
-        cookieSecure: true
-        # 以下均为可选，默认值见 README：
-        # usersFile: ""          # 默认 $DSH_HOME/auth/users.yaml
-        # sessionTtl: 604800     # 秒，自创建起固定过期
-        # cookieName: dsh_auth
+# - 删除本配置覆盖 = 插件回到默认配置（token 模式，DSH_AUTH_TOKEN 环境变量），
+#   fail-closed 纪律不变：任何缺失/错误的配置都会挡住访问而不是放行。
+- id: dsh-auth-gate
+  config:
+    mode: "password"
+    cookieSecure: true
+    # 以下均为可选，默认值见 README：
+    # usersFile: ""          # 默认 $DSH_HOME/auth/users.yaml
+    # sessionTtl: 604800     # 秒，自创建起固定过期
+    # cookieName: dsh_auth

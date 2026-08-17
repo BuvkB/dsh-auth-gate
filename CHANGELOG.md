@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.5.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.4.0...v0.5.0) (2026-08-15)
+
+
+### Features
+
+* declare dsh.bundle manifest for one-command mounting ([c6a08cd](https://github.com/TecFancy/dsh-auth-gate/commit/c6a08cdd6d9d2dfad9bf2b117f1839beb8b1992f))
+* declare dsh.bundle manifest for one-command mounting ([3fa9c0f](https://github.com/TecFancy/dsh-auth-gate/commit/3fa9c0f5861be91e03bdcc4f3b43f93a37067665))
+
+## [0.4.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.4.0...v0.4.1) (2026-08-15)
+
+
+### Features
+
+* declare `dsh.bundle` manifest so `dsh plugin add` registers the mount automatically (root [`cordis.patch.yml`](cordis.patch.yml); config overrides now live in the user patch layer, see `deploy/cordis.patch.yml`)
+
+## [0.4.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.3.0...v0.4.0) (2026-08-15)
+
+
+### Features
+
+* align plugin name with package (dsh-auth-gate) ([ee3e436](https://github.com/TecFancy/dsh-auth-gate/commit/ee3e4368db4a1e5f36b3f7e1a33447340f3524b9))
+* align plugin name with package (dsh-auth-gate) ([9d67d60](https://github.com/TecFancy/dsh-auth-gate/commit/9d67d608d59532857f8f8edeedbaae598f0bdea6))
+
+## [0.3.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.2.0...v0.3.0) (2026-08-15)
+
+
+### Features
+
+* **package:** add npm keywords for discoverability ([00efe5f](https://github.com/TecFancy/dsh-auth-gate/commit/00efe5f4590ac8da9f65249703c400c3b22860bc))
+* **package:** add npm keywords for discoverability ([479bb9d](https://github.com/TecFancy/dsh-auth-gate/commit/479bb9d79294aa5f7c7271c7abcd24214d7d78a7))
+
+## [0.2.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.2...v0.2.0) (2026-08-15)
+
+
+### Features
+
+* **login-page:** redesign login page with modern card UI ([ec54466](https://github.com/TecFancy/dsh-auth-gate/commit/ec544660df8b3c733c566343bf949a607124a780))
+* **login-page:** redesign login page with modern card UI ([edfe2d8](https://github.com/TecFancy/dsh-auth-gate/commit/edfe2d87c8d2759bab52e0497e98393dc0c0c6d6))
+
+## [0.1.2](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.1...v0.1.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ci:** pass release_created through job outputs so publish can run ([2af5e56](https://github.com/TecFancy/dsh-auth-gate/commit/2af5e563c66eb3d855604edf9973e8e2dd2d7062))
+* **ci:** pass release_created through job outputs so publish can run ([a894966](https://github.com/TecFancy/dsh-auth-gate/commit/a894966bcca15852700b329cd8018716d0a8e36f))
+
+## [0.1.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.1.0...v0.1.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **password-login:** clear failure buckets on successful login ([e41f8c7](https://github.com/TecFancy/dsh-auth-gate/commit/e41f8c7238bc3151b610e7c260dfe400aadccbb4))
+* **password-login:** clear failure buckets on successful login + MIT license and metadata cleanup ([ec40f01](https://github.com/TecFancy/dsh-auth-gate/commit/ec40f0117345ae71a00c0f132a68142b7c4874d2))
+
 ## 0.1.0 (2026-08-15)
 
 

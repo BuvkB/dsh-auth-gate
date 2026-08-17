@@ -27,14 +27,17 @@
 ## 快速开始
 
 ```sh
-# 1. 从 npm 装进你的 dsh profile
+# 1. 从 npm 装进你的 dsh profile。
+#    0.4.1 起包声明了 dsh.bundle manifest，`dsh plugin add` 会同时自动注册挂载
+#    （dsh.profile.bundles），无需手动写挂载行：
 dsh plugin --profile web add dsh-auth-gate
 
 # 2. 创建管理员账号
 printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
-# 3. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里加 dsh-auth-gate 行
-#    （仓库自带现成模板 deploy/cordis.patch.yml，见下方"配置"）
+# 3. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里覆盖插件配置
+#    （仓库自带现成配置覆盖模板 deploy/cordis.patch.yml，见下方"配置"——挂载本身
+#    不需要手动 patch 行）
 
 # 4. 重启 dsh，打开你的站点——会先要求登录。
 ```
@@ -51,16 +54,17 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
 ## 配置
 
-编辑 `$DSH_HOME/cordis.patch.yml`（复制仓库里的模板 `deploy/cordis.patch.yml`），
-`dsh-auth-gate` 行：
+bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使用默认配置：
+`mode: "token"`，由 `DSH_AUTH_TOKEN` 环境变量提供共享秘密。要改配置，在
+`$DSH_HOME/cordis.patch.yml`（或 profile 的 `cordis.patch.yml`）里按 id 覆盖——
+仓库自带现成覆盖模板 `deploy/cordis.patch.yml`。注意：覆盖条目**不要带 `insert`**
+（否则会二次挂载插件），只覆盖 config：
 
 ```yaml
-- insert:
-    - id: dsh-auth-gate
-      name: dsh-auth-gate
-      config:
-        mode: "password" # "password"（推荐）或 "token"
-        cookieSecure: true # 使用 https 时保持 true
+- id: dsh-auth-gate
+  config:
+    mode: "password" # "password"（推荐）或 "token"
+    cookieSecure: true # 使用 https 时保持 true
 ```
 
 | 选项           | 默认值             | 作用                                                         |
