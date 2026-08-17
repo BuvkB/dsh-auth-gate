@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.3](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.2...v0.6.3) (2026-08-17)
+
+
+### Bug Fixes
+
+* **client:** match settings trigger width in wide state (calc +8px) ([dec24af](https://github.com/TecFancy/dsh-auth-gate/commit/dec24afef52e6d39e1b02e82a5070d048d1c9b25))
+* match settings trigger width in wide state ([f4fccb0](https://github.com/TecFancy/dsh-auth-gate/commit/f4fccb08e83609010bb4fb2662f601f47134a76b))
+
 ## [0.6.2](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.1...v0.6.2) (2026-08-17)
 
 
