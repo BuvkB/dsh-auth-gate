@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.5.0...v0.5.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **login-page:** restore autofocus and raise contrast to WCAG AA ([9dd09de](https://github.com/TecFancy/dsh-auth-gate/commit/9dd09de95f6d4f923b15e83d2b61bf1871e6019d))
+
 ## [0.5.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.4.0...v0.5.0) (2026-08-15)
 
 
