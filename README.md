@@ -109,8 +109,9 @@ in `deploy/cordis.patch.yml`). The override targets the mounted row by id
   valid until they expire.
 - Login rate limiting resets when the server restarts.
 - Behind a reverse proxy, rate limiting counts by the proxy's address.
-- There is no logout button in the dsh interface yet — visit
-  `/auth/logout?next=/` to sign out.
+- Sign out from the GUI: a Sign out button sits at the sidebar foot (client
+  half, requires the web app's client bundle — dsh 0.1.0-rc.6+); the direct
+  `/auth/logout?next=/` URL always works as a fallback.
 - The plugin only protects dsh's web surface. It is not a replacement for
   server-level security: keep the server OS user locked down and the config
   files private (`.credentials.yaml` and `auth/users.yaml` are created with
