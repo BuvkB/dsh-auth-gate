@@ -109,4 +109,21 @@ describe("LogoutAction", () => {
     root.unmount();
     container.remove();
   });
+
+  it("shows the settings-aligned hover background and clears it on leave", async () => {
+    fetchMock.mockResolvedValue(statusResponse(true));
+    const { root, container } = await renderAction(true);
+    const button = container.querySelector("button")!;
+    expect(button.style.background).toBe("transparent");
+    act(() => {
+      button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(button.style.background).toBe("rgba(38, 49, 72, 0.06)");
+    act(() => {
+      button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    });
+    expect(button.style.background).toBe("transparent");
+    root.unmount();
+    container.remove();
+  });
 });
