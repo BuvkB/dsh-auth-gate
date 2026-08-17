@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.2](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.1...v0.6.2) (2026-08-17)
+
+
+### Bug Fixes
+
+* align sign-out button styles with the settings trigger ([765577b](https://github.com/TecFancy/dsh-auth-gate/commit/765577bc46cad86e03f87e3241bcc6db3c784811))
+* **client:** align sign-out button styles with the settings trigger ([600e200](https://github.com/TecFancy/dsh-auth-gate/commit/600e20035e45b7082b51ea129d0b5125fac1c16c))
+
 ## [0.6.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.0...v0.6.1) (2026-08-17)
 
 
