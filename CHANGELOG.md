@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.0...v0.6.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **cli:** resolve symlinked entry before running ([68e0046](https://github.com/TecFancy/dsh-auth-gate/commit/68e004605dcaf708b6ba9f39214f2fe7091ef066))
+* dsh-auth CLI entry check under symlinked installs ([f420f64](https://github.com/TecFancy/dsh-auth-gate/commit/f420f647c70d40b886f466f622e21f701f662bc5))
+
 ## [0.6.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.5.1...v0.6.0) (2026-08-17)
 
 
