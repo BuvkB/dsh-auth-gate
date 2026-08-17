@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { hashPassword } from "./password.js";
@@ -159,7 +160,10 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+// 入口判定必须走真实路径：pnpm/git 安装的 node_modules 是符号链接，argv[1]
+// 是软链路径而 import.meta.url 已解析到真实文件，直接比较会静默跳过 main()。
+const entryPath = process.argv[1] ? realpathSync(process.argv[1]) : "";
+if (import.meta.url === pathToFileURL(entryPath).href) {
   void main(process.argv.slice(2), defaultIo).then((code) => {
     process.exitCode = code;
   });
