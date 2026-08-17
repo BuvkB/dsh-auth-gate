@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.5.1...v0.6.0) (2026-08-17)
+
+
+### Features
+
+* **client:** add sign-out button to the sidebar foot ([a5bc397](https://github.com/TecFancy/dsh-auth-gate/commit/a5bc3971f39da93d29a6b898bc0c7c0e15254038))
+* sign-out button in the GUI sidebar foot (client half) ([18347a7](https://github.com/TecFancy/dsh-auth-gate/commit/18347a79fa442762bebde2a347c9b1227390ffd4))
+
 ## [0.5.1](https://github.com/TecFancy/dsh-auth-gate/compare/v0.5.0...v0.5.1) (2026-08-17)
 
 
