@@ -58,7 +58,10 @@ function getButtonStyle(wide: boolean, hovered: boolean): CSSProperties {
       ...shared,
       gap: 8,
       height: 34,
-      width: "100%",
+      // settings.trigger 的 width 是 auto（负 margin 拉伸 = 容器 + 8px）；
+      // 本按钮在 flex 行里 width:auto 只会 fit-content，故用 calc 等效拉伸，
+      // 与 settings 的视觉几何完全一致（实测 264px 对 256px 差 8px）。
+      width: "calc(100% + 8px)",
       padding: "6px 2px 6px 10px",
       margin: "4px -4px",
       borderRadius: 12,
