@@ -162,4 +162,10 @@ describe("loginPageHtml", () => {
   it("escapes next in the hidden input", () => {
     expect(loginPageHtml(`/x?a=1&b=2`)).toContain('value="/x?a=1&amp;b=2"');
   });
+
+  it("autofocuses the token input (M2 §4.4)", () => {
+    expect(loginPageHtml("/")).toContain(
+      'autocomplete="current-password" placeholder="Paste your token" required autofocus>',
+    );
+  });
 });

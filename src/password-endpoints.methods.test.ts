@@ -170,4 +170,14 @@ describe("passwordLoginPageHtml", () => {
     expect(html).toContain('name="password"');
     expect(html).toContain('autocomplete="current-password"');
   });
+
+  it("autofocuses only the password field (M3 P13)", () => {
+    const html = passwordLoginPageHtml("/");
+    expect(html).toContain(
+      'autocomplete="current-password" placeholder="Enter your password" required autofocus>',
+    );
+    expect(html).not.toContain(
+      'autocomplete="username" placeholder="Enter your username" required autofocus>',
+    );
+  });
 });
