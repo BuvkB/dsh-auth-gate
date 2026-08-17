@@ -129,7 +129,8 @@ for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w "%{http_code}\n" -d "username=a
 curl -s -i -d "username=admin&password=<password>" http://127.0.0.1:3081/auth/login | head -3  # 429 + retry-after
 
 # I. Browser path (optional, requires an https environment): incognito window → visit → 302 to /auth/login →
-#    login → enter the instance; the logout button is not implemented, visit /auth/logout?next=/ via URL to log out.
+#    login → enter the instance; a Sign out button sits at the sidebar foot (client half, 0.6.0+),
+#    or visit /auth/logout?next=/ via URL to log out.
 ```
 
 All green = deployment acceptance passes. **Every failure path must fail** (401/403 semantics,
