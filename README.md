@@ -57,6 +57,10 @@ After signing in, they land on your instance:
 
 ![dsh instance](docs/demo/dashboard.png)
 
+A Sign out button sits at the sidebar foot, next to Settings:
+
+![Sign out button](docs/demo/logout-button.png)
+
 ## Configuration
 
 The bundle mount (id `dsh-auth-gate`, inserted by `dsh plugin add`) uses the
