@@ -110,7 +110,7 @@ describe("LogoutAction", () => {
     container.remove();
   });
 
-  it("shows the settings-aligned hover background and clears it on leave", async () => {
+  it("shows the theme token hover background and clears it on leave", async () => {
     fetchMock.mockResolvedValue(statusResponse(true));
     const { root, container } = await renderAction(true);
     const button = container.querySelector("button")!;
@@ -118,7 +118,7 @@ describe("LogoutAction", () => {
     act(() => {
       button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     });
-    expect(button.style.background).toBe("rgba(38, 49, 72, 0.06)");
+    expect(button.style.background).toBe("var(--dsw-alias-interactive-bg-hover)");
     act(() => {
       button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
     });
