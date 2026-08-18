@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.3...v0.6.4) (2026-08-18)
+
+
+### Bug Fixes
+
+* **client:** use theme hover token for sign-out background ([dd01e11](https://github.com/TecFancy/dsh-auth-gate/commit/dd01e113acb41d3f3a72b2fb7867c014f995f15a))
+* **client:** use theme hover token for sign-out background ([088119f](https://github.com/TecFancy/dsh-auth-gate/commit/088119f4802e2b6da657ff14c1843c836912ea3c))
+
 ## [0.6.3](https://github.com/TecFancy/dsh-auth-gate/compare/v0.6.2...v0.6.3) (2026-08-17)
 
 
