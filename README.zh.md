@@ -52,6 +52,14 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
 ![dsh 实例](docs/demo/dashboard.png)
 
+右上角有一个纯图标登出按钮——**新会话页**（还没有任何输入/响应时）在窗口右上角浮动显示：
+
+![登出按钮 · 新会话页](docs/demo/logout-hero-blank.png)
+
+在**真实会话页**里，它在会话头部右上角（Session log 按钮右侧）：
+
+![登出按钮 · 会话页](docs/demo/logout-conversation-en.png)
+
 ## 配置
 
 bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使用默认配置：
@@ -97,6 +105,7 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
 - 禁用用户只阻止**新**登录；已经登录的会话要等它自然过期。
 - 登录限速在服务器重启后清零。
 - 反代部署时，限速按反代出口地址统计。
-- dsh 界面里还没有登出按钮——访问 `/auth/logout?next=/` 即可登出。
+- 右上角有登出按钮：会话页在会话头部（Session log 右侧），新会话页在窗口右上角
+  浮动显示；`/auth/logout?next=/` 始终可作为兜底。
 - 本插件只保护 dsh 的网页入口，不能替代服务器层面的安全：请保持服务器系统用户最小权限、
   配置文件私密（`.credentials.yaml` 和 `auth/users.yaml` 创建时即为 `0600` 权限）。
