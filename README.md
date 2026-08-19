@@ -63,8 +63,13 @@ page (no session open), at the window's top-right corner. Icon-only, with a
 theme-aware hover background (light/dark follow the active theme), matching
 the header's other icon buttons.
 
-> GUI demo screenshots in `docs/demo/logout-sidebar-*.png` predate this
-> placement (they show the button at the sidebar foot) and will be refreshed.
+New-session page (no input/response yet):
+
+![Sign out on the new-session page](docs/demo/logout-hero-blank.png)
+
+Real conversation (session header, right of the Session log):
+
+![Sign out in a conversation](docs/demo/logout-conversation-en.png)
 
 ## Configuration
 
