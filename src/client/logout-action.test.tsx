@@ -130,7 +130,7 @@ describe("LogoutAction (session header)", () => {
   });
 });
 
-describe("HeroLogoutAction (root overlay, new-session page)", () => {
+describe("HeroLogoutAction (hero visibility gate)", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
@@ -146,9 +146,16 @@ describe("HeroLogoutAction (root overlay, new-session page)", () => {
     return { json: () => Promise.resolve({ authenticated }) };
   }
 
-  function sessionsHook(current: string | undefined) {
-    return (selector: (state: { current?: string }) => string | undefined) =>
-      selector(typeof current === "undefined" ? {} : { current });
+  function sessionsHook(
+    current: string | undefined,
+    byId: Record<string, { blank?: boolean }> = {},
+  ) {
+    return (
+      selector: (state: {
+        current?: string;
+        byId?: Record<string, { blank?: boolean }>;
+      }) => unknown,
+    ) => selector(typeof current === "undefined" ? { byId } : { current, byId });
   }
 
   it("renders the floating logout when authenticated and no session is current", async () => {
@@ -165,16 +172,66 @@ describe("HeroLogoutAction (root overlay, new-session page)", () => {
     container.remove();
   });
 
-  it("renders nothing when a session is current", async () => {
+  it("renders the floating logout when the current session is blank (no input/response yet)", async () => {
     fetchMock.mockResolvedValue(statusResponse(true));
     const { root, container } = await renderElement(
-      createElement(HeroLogoutAction, { useSessions: sessionsHook("session-1") }),
+      createElement(HeroLogoutAction, {
+        useSessions: sessionsHook("blank-1", { "blank-1": { blank: true } }),
+      }),
+    );
+    expect(container.querySelector("form")).not.toBeNull();
+    root.unmount();
+    container.remove();
+  });
+
+  it("renders nothing when a real (non-blank) session is current", async () => {
+    fetchMock.mockResolvedValue(statusResponse(true));
+    const { root, container } = await renderElement(
+      createElement(HeroLogoutAction, {
+        useSessions: sessionsHook("session-1", { "session-1": { blank: false } }),
+      }),
     );
     expect(container.querySelector("form")).toBeNull();
     expect(container.textContent).toBe("");
     root.unmount();
     container.remove();
   });
+
+  it("renders the floating logout when the current row is missing (transient)", async () => {
+    fetchMock.mockResolvedValue(statusResponse(true));
+    const { root, container } = await renderElement(
+      createElement(HeroLogoutAction, { useSessions: sessionsHook("session-1", {}) }),
+    );
+    expect(container.querySelector("form")).not.toBeNull();
+    root.unmount();
+    container.remove();
+  });
+});
+
+describe("HeroLogoutAction (auth and hook fallback)", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    fetchMock.mockReset();
+  });
+
+  function statusResponse(authenticated: boolean): unknown {
+    return { json: () => Promise.resolve({ authenticated }) };
+  }
+
+  function sessionsHook(current: string | undefined) {
+    return (
+      selector: (state: {
+        current?: string;
+        byId?: Record<string, { blank?: boolean }>;
+      }) => unknown,
+    ) => selector(typeof current === "undefined" ? {} : { current });
+  }
 
   it("renders nothing when unauthenticated even without a current session", async () => {
     fetchMock.mockResolvedValue(statusResponse(false));
@@ -186,7 +243,7 @@ describe("HeroLogoutAction (root overlay, new-session page)", () => {
     container.remove();
   });
 
-  it("renders when useSessions is absent (treated as no current session)", async () => {
+  it("renders when useSessions is absent (treated as hero state)", async () => {
     fetchMock.mockResolvedValue(statusResponse(true));
     const { root, container } = await renderElement(createElement(HeroLogoutAction, {}));
     expect(container.querySelector("form")).not.toBeNull();
