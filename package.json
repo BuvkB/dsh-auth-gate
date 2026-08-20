@@ -1,7 +1,7 @@
 {
   "name": "dsh-auth-gate",
   "version": "0.7.1",
-  "description": "Application-layer authentication plugin for the dsh web surface",
+  "description": "Application-layer authentication plugin for the DeepSeek Harness web surface",
   "type": "module",
   "license": "MIT",
   "keywords": [
