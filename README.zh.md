@@ -60,13 +60,15 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
 ![dsh 实例](docs/demo/dashboard.png)
 
-右上角有一个纯图标登出按钮——**新会话页**（还没有任何输入/响应时）在窗口右上角浮动显示：
+侧边栏底部有一个**登出**行——左栏最下方的脚组里，与「设置」同行分组（不另起分隔线）。
+它是普通列表行：16px 门形图标 + 本地化文字（中文「登出」/ "Sign out"），hover
+背景与侧边栏其他交互行同一主题 token。文案跟随界面语言（复用「设置」里语言切换
+的同一套 locale 机制）；点击走原有的原生 `POST /auth/logout?next=/` 登出流程。
 
-![登出按钮 · 新会话页](docs/demo/logout-hero-blank.png)
+侧边栏底部登出行（设计预览，中/英可切换）：
 
-在**真实会话页**里，它在会话头部右上角（Session log 按钮右侧）：
-
-![登出按钮 · 会话页](docs/demo/logout-conversation-en.png)
+- [Logout Under Settings (EN)](docs/design/DSH_dsh-auth-gate-_Design_EN/Logout%20Under%20Settings.dc.html)
+- [Logout Under Settings (ZH)](docs/design/DSH_dsh-auth-gate-_Design_ZH/Logout%20Under%20Settings.dc.html)
 
 ## 配置
 
@@ -113,7 +115,7 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
 - 禁用用户只阻止**新**登录；已经登录的会话要等它自然过期。
 - 登录限速在服务器重启后清零。
 - 反代部署时，限速按反代出口地址统计。
-- 右上角有登出按钮：会话页在会话头部（Session log 右侧），新会话页在窗口右上角
-  浮动显示；`/auth/logout?next=/` 始终可作为兜底。
+- 侧边栏底部有登出行：在「设置」同一脚组（文案随语言在「登出」/ "Sign out" 间切换）；
+  `/auth/logout?next=/` 始终可作为兜底。
 - 本插件只保护 dsh 的网页入口，不能替代服务器层面的安全：请保持服务器系统用户最小权限、
   配置文件私密（`.credentials.yaml` 和 `auth/users.yaml` 创建时即为 `0600` 权限）。

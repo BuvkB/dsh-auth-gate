@@ -1,12 +1,12 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
-/** 登出按钮的可访问名（纯图标、无可见文字，按钮以 aria-label 命名）。 */
-const SIGN_OUT_LABEL = "Sign out";
-
 /** 登出目标：POST-only（M22：next 仅从 query 取，校验回落 /）。 */
 const LOGOUT_TARGET = "/auth/logout?next=/";
 
-/** 登出图标：16px，与对话头部工具栏（Session log）图标尺寸一致。 */
+/**
+ * 登出图标：16px 列表行图标（viewBox 24 不变，只设 width/height 16）。
+ * 沿用原 32px 圆形按钮的同一个 SVG（方框 + 箭头）。
+ */
 function renderLogoutIcon() {
   return (
     <svg
@@ -28,25 +28,40 @@ function renderLogoutIcon() {
 }
 
 /**
- * hover 态背景色：引用 shell 交互元素的 hover token
- * `var(--dsw-alias-interactive-bg-hover)`（浅色主题解析为 rgba(38, 49, 72, .06)，
- * 深色主题为 rgba(255, 255, 255, .08)），与 Session log / 图标按钮随主题一致。
+ * hover 态背景色：与侧边栏其他交互行同主题 token
+ * `var(--dsw-alias-interactive-bg-hover)`（浅主题 rgba(38,49,72,.06)，
+ * 深主题 rgba(255,255,255,.08)）。
  */
 const HOVER_BACKGROUND = "var(--dsw-alias-interactive-bg-hover)";
 
-/** 与对话头部 Session log 按钮同一套 surface 语言：32px 圆形图标按钮。 */
-const BUTTON_STYLE: CSSProperties = {
-  display: "inline-flex",
+/**
+ * 侧边栏 footer 登出行的基础样式：普通列表行（与「设置」同一行语言）——
+ * 16px 图标 + 文字标签，display:flex；align-items:center；gap:9px；
+ * padding:9px 8px；border-radius:8px。
+ */
+const ROW_STYLE: CSSProperties = {
+  display: "flex",
   alignItems: "center",
-  justifyContent: "center",
-  width: 32,
-  height: 32,
-  padding: 0,
-  border: "1px solid var(--dsw-alias-border-l2)",
-  borderRadius: "50%",
-  color: "var(--dsw-alias-label-primary)",
-  cursor: "pointer",
+  gap: 9,
+  padding: "9px 8px",
+  borderRadius: 8,
+  width: "100%",
   boxSizing: "border-box",
+  color: "var(--dsw-alias-label-primary)",
+  background: "transparent",
+  border: "none",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  fontSize: 14,
+  lineHeight: 20,
+  textAlign: "left",
+};
+
+const labelWrapStyle: CSSProperties = {
+  display: "block",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const formStyle: CSSProperties = {
@@ -76,78 +91,42 @@ function useAuthenticated(): boolean | null {
   return authenticated;
 }
 
-/** 可复用的登出提交按钮：原生 form POST（零 JS 依赖）+ 纯图标 + 主题 hover。 */
-function LogoutSubmitButton() {
+/** 槽位渲染器按注册 `locale` 注入的 translate 形（本插件 `auth` 词典的 `logout` 键）。 */
+export type LogoutTranslate = (key: string, params?: Record<string, unknown>) => string;
+
+/** 侧边栏 footer 登出行组件（sidebar.footer.action 槽，root 作用域）。 */
+export interface SidebarLogoutActionProps {
+  /** 侧边栏显示态：宽列（false = 56px rail，只画图标列）。 */
+  wide?: boolean;
+  /** 注入的本地化 translate（locale seat）。 */
+  t?: LogoutTranslate;
+}
+
+/**
+ * 可复用的登出提交行：原生 form POST（零 JS 依赖）+ 16px 方块图标 + 本地化文字 + 主题 hover。
+ * 渲染进 `sidebar.footer.action`（侧边栏 footer 的可追加列表槽）——「设置」同一脚组。
+ */
+export function SidebarLogoutAction({ t }: SidebarLogoutActionProps) {
+  const authenticated = useAuthenticated();
   const [hovered, setHovered] = useState(false);
+  if (authenticated !== true) return null;
+  const label = typeof t === "function" ? t("logout") : "Sign out";
   return (
     <form method="post" action={LOGOUT_TARGET} style={formStyle}>
       <button
         type="submit"
-        aria-label={SIGN_OUT_LABEL}
-        title={SIGN_OUT_LABEL}
+        aria-label={label}
+        title={label}
         style={{
-          ...BUTTON_STYLE,
+          ...ROW_STYLE,
           background: hovered ? HOVER_BACKGROUND : "transparent",
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         {renderLogoutIcon()}
+        <span style={labelWrapStyle}>{label}</span>
       </button>
     </form>
-  );
-}
-
-/** 会话头部右上角登出入口（conversation.session.header.utilities，session 作用域）。 */
-export function LogoutAction() {
-  const authenticated = useAuthenticated();
-  if (authenticated !== true) return null;
-  return <LogoutSubmitButton />;
-}
-
-/**
- * 会话快照的本地最小镜像（root 槽位 shell.overlay 的 standard hook 输入）。
- * 见 SessionListState：`current` 为持久化的当前会话选择；`byId[id].blank` 为空
- * 会话标记（Empty-log bit——New Session 复用一个 blank 会话作为 current）。
- */
-interface HeroSessionsState {
-  current?: string;
-  byId?: Record<string, { blank?: boolean }>;
-}
-
-/**
- * 新会话页（hero 空态 / 空白会话，还没有输入与响应）右上角的浮动登出入口：
- * root 级 shell.overlay 注册。仅当 **不是真实会话**（无当前会话，或当前会话仍为
- * blank）且已认证时渲染——因为 blank 会话的 session header 是隐藏的（头部按钮
- * 不可见），此时由本浮动按钮补齐；一旦存在真实（非空）会话则交回会话头部入口。
- */
-export interface HeroLogoutActionProps {
-  /** root 槽位 standard hook：selector 读取会话快照。缺席或非函数时按 hero 处理。 */
-  useSessions?: (selector: (state: HeroSessionsState) => unknown) => unknown;
-}
-
-export function HeroLogoutAction({ useSessions }: HeroLogoutActionProps) {
-  const authenticated = useAuthenticated();
-  const sessionsFn =
-    typeof useSessions === "function"
-      ? useSessions
-      : (selector: (state: HeroSessionsState) => unknown) => selector({});
-  const { hasRealSession } = sessionsFn((state) => {
-    const current = state.current;
-    const real = current !== undefined && state.byId?.[current]?.blank === false;
-    return { hasRealSession: real === true };
-  }) as { hasRealSession: boolean };
-  if (authenticated !== true || hasRealSession) return null;
-  const floatingWrap: CSSProperties = {
-    position: "fixed",
-    top: 14,
-    right: 16,
-    zIndex: 1,
-    pointerEvents: "auto",
-  };
-  return (
-    <div style={floatingWrap}>
-      <LogoutSubmitButton />
-    </div>
   );
 }
