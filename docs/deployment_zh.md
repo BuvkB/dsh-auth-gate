@@ -36,6 +36,8 @@ dsh plugin --profile web add dsh-auth-gate   # 转发 pnpm，从公共 npm 解�
 
 - 安装后 `$DSH_HOME/profiles/web/package.json` 的 `dependencies` 含 `dsh-auth-gate`；
   依赖（`yaml`、`@deepseek-ai/*`）自动从公共 npm 解析。
+- CLI 二进制**不会**进 `PATH`——`dsh plugin add` 只是在 profile 目录里跑 pnpm，
+  `dsh-auth` 只能从 `$DSH_HOME/profiles/web/node_modules/.bin` 解析。正确的调用方式见 §2。
 - 升级：重跑同一命令（pnpm 拉新版本）。
 - 卸载：`dsh plugin --profile web remove dsh-auth-gate`（0.4.1 起插件声明了
   `dsh.bundle`，`dsh plugin add` 会在 `dsh.profile.bundles` 里注册挂载，`remove`
@@ -46,9 +48,13 @@ dsh plugin --profile web add dsh-auth-gate   # 转发 pnpm，从公共 npm 解�
 
 1. **建管理员**（`users.yaml` 自动创建于 `$DSH_HOME/auth/users.yaml`，0600）：
    ```bash
-   printf '%s\n' '<强口令>' | dsh-auth user add admin --password-stdin
-   dsh-auth user list                    # 确认
+   # CLI 不在 PATH 上（见 §1）：经由 profile 调用。
+   printf '%s\n' '<强口令>' | \
+     pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user add admin --password-stdin
+   pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user list   # 确认
    ```
+   替代方式（运行时不依赖 pnpm）：
+   `node "$DSH_HOME/profiles/web/node_modules/dsh-auth-gate/lib/cli.js" ...`。
    多管理员：重复 `user add`；禁用：`dsh-auth user disable <name>`。
 2. **配置覆盖**：把仓库 `deploy/cordis.patch.yml` 复制为 `$DSH_HOME/cordis.patch.yml`
    ——0.4.1 起该模板是纯配置覆盖（无 `insert`；挂载本身由 `dsh plugin add` 通过

@@ -32,6 +32,9 @@
   dsh-auth user disable admin                 # 禁止某用户今后登录
   ```
 
+  全局安装时 `dsh-auth` 直接在你的 PATH 上；`dsh plugin add` 安装后二进制在
+  profile 里，需要经由 profile 调用——见[快速开始](#快速开始)。
+
 ## 快速开始
 
 ```sh
@@ -40,8 +43,12 @@
 #    （dsh.profile.bundles），无需手动写挂载行：
 dsh plugin --profile web add dsh-auth-gate
 
-# 2. 创建管理员账号
-printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
+# 2. 创建管理员账号。
+#    `dsh plugin add` 把插件装进 profile 的 node_modules
+#    （$DSH_HOME/profiles/web，默认 ~/.dsh/...），CLI **不会**进你的 PATH，
+#    所以要经由 profile 调用。`dsh plugin` 本来就要求有 pnpm：
+printf '%s\n' '选一个强密码' | \
+  pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user add admin --password-stdin
 
 # 3. 开启密码登录：在 $DSH_HOME/cordis.patch.yml 里覆盖插件配置
 #    （仓库自带现成配置覆盖模板 deploy/cordis.patch.yml，见下方"配置"——挂载本身
@@ -88,6 +95,46 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
 | `tokenRef`     | `"DSH_AUTH_TOKEN"` | 仅令牌模式：共享秘密存在哪个环境变量里                       |
 | `cookieSecure` | `true`             | 只在纯 http 测试环境设为 `false`                             |
 | `usersFile`    | `""`               | 密码模式：用户列表文件位置。默认 `$DSH_HOME/auth/users.yaml` |
+
+## 故障排查
+
+### `dsh-auth: command not found`
+
+`dsh plugin --profile web add dsh-auth-gate` 把包装进 profile 的 `node_modules`
+（`$DSH_HOME/profiles/web/node_modules/dsh-auth-gate`，默认 `~/.dsh/...`），
+但不会往你的 shell `PATH` 里加任何东西，所以 CLI 二进制不能直接用名字调用。
+这只影响 CLI——插件本身运行正常。任选其一：
+
+1. **经由 profile 调用（推荐）。** `dsh plugin` 本来就要求有 pnpm，让 CLI
+   从插件所在的同一位置解析：
+
+   ```sh
+   pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth user add admin --password-stdin
+   pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth user list
+   ```
+
+   可选，每个 shell 会话加一次：
+
+   ```sh
+   alias dsh-auth='pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth'
+   ```
+
+2. **直接用 node 调用**（运行时不依赖 pnpm）：
+
+   ```sh
+   node "$DSH_HOME/profiles/web/node_modules/dsh-auth-gate/lib/cli.js" user add admin --password-stdin
+   ```
+
+3. **全局安装**，`dsh-auth` 就会在你的 PATH 上：
+
+   ```sh
+   npm install -g dsh-auth-gate
+   dsh-auth user add admin --password-stdin
+   ```
+
+无论哪种调用方式，CLI 读写的是同一份共享用户列表
+（`$DSH_HOME/auth/users.yaml`，兜底 `~/.dsh/auth/users.yaml`，即插件读取的
+那份）——全局安装的包只是启动器。
 
 ## 部署
 

@@ -43,6 +43,9 @@ dsh plugin --profile web add dsh-auth-gate   # forwards to pnpm, resolved from p
 - After installation, the `dependencies` of `$DSH_HOME/profiles/web/package.json` include
   `dsh-auth-gate`; dependencies (`yaml`, `@deepseek-ai/*`) are resolved automatically from public
   npm.
+- The CLI binary is **not** added to `PATH` — `dsh plugin add` only runs pnpm in the profile
+  directory, so `dsh-auth` resolves exclusively from
+  `$DSH_HOME/profiles/web/node_modules/.bin`. §2 shows the correct invocation.
 - Upgrade: re-run the same command (pnpm pulls the new version).
 - Uninstall: `dsh plugin --profile web remove dsh-auth-gate` (since 0.4.1 the bundle
   declaration makes `dsh plugin add` register the mount in `dsh.profile.bundles`, so
@@ -54,9 +57,13 @@ dsh plugin --profile web add dsh-auth-gate   # forwards to pnpm, resolved from p
 1. **Create the administrator** (`users.yaml` is auto-created at
    `$DSH_HOME/auth/users.yaml`, 0600):
    ```bash
-   printf '%s\n' '<strong password>' | dsh-auth user add admin --password-stdin
-   dsh-auth user list                    # confirm
+   # The CLI is not on PATH (see §1): call it through the profile.
+   printf '%s\n' '<strong password>' | \
+     pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user add admin --password-stdin
+   pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user list   # confirm
    ```
+   Alternative (no pnpm needed at runtime):
+   `node "$DSH_HOME/profiles/web/node_modules/dsh-auth-gate/lib/cli.js" ...`.
    Multiple administrators: repeat `user add`; disable: `dsh-auth user disable <name>`.
 2. **Config override**: copy the repo's `deploy/cordis.patch.yml` to
    `$DSH_HOME/cordis.patch.yml` — since 0.4.1 the template is a pure config
