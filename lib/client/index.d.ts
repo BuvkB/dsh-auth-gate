@@ -1,12 +1,15 @@
 import type { AuthContext } from "./context.ts";
 /**
- * dsh-auth-gate client 半边：认证后在 GUI 右上角挂一个纯图标登出入口（同一套
- * POST /auth/logout + GET /auth/status 语义）。两处注册互补、作用域互斥：
+ * dsh-auth-gate client 半边：认证后在**设置面板**（设置 → 通用设置 页底部）挂一
+ * 个醒目的「退出登录 / Sign out」按钮——`settings.general.item`（root 作用域、
+ * 可追加列表槽，由 ui-settings-general 的 General 页堆叠渲染，order 30 排在
+ * 现有设置行（Agent 预设/权限/语言/外观/Enter 行为）之后、页面最底部）。
  *
- * - `conversation.session.header.utilities`（session 作用域）：会话头部右上角，
- *   Session log 右侧——会话页面使用；
- * - `shell.overlay`（root 作用域）+ 无当前会话门控：**新会话页**（hero 空态）
- *   没有会话头部，此时在窗口右上角浮动显示同一按钮。
+ * 换槽对比：不再往会话页 `conversation.session.header.utilities`、新会话页
+ * `shell.overlay` 注册（右上角两处入口已移除），也不占侧边栏 footer 脚区。
+ * 文案挂进 dsh 现有的 locale 机制（与「设置」里的语言切换同一套）：注册 `auth`
+ * 词典（zh/en），再以 `locale: "auth"` 给注册条目注入 `t` seat，按钮文字随界面
+ * 语言在「退出登录」/ "Sign out" 间实时切换。不改任何服务端端点/会话语义。
  */
 export declare const inject: string[];
 export declare function apply(ctx: AuthContext): void;

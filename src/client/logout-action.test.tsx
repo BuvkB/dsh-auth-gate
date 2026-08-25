@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthContext } from "./context.ts";
 import { apply } from "./index.tsx";
-import { HeroLogoutAction, LogoutAction } from "./logout-action.tsx";
+import { SettingsLogoutAction } from "./logout-action.tsx";
 
 // React 18 的 act() 需要显式声明测试环境（否则只警告不生效）。
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -28,42 +28,60 @@ async function renderElement(
   return { root, container };
 }
 
-describe("apply", () => {
-  it("registers the sign-out entry in the session header and the hero overlay", () => {
-    const injectCalls: [string, () => () => void][] = [];
-    const inject = vi.fn((key: string, callback: () => () => void) => {
+/** 构造带 mock 的 AuthContext（slots + locale + effect）。 */
+function makeApplyHarness() {
+  const localeRegisters: [string, string, Record<string, string>][] = [];
+  const locale = {
+    register: vi.fn((ns: string, loc: string, dict: Record<string, string>): (() => void) => {
+      localeRegisters.push([ns, loc, dict]);
+      return () => undefined;
+    }),
+    bind: vi.fn(() => (key: string) => (key === "logout" ? "Sign out" : key)),
+  };
+  const injectCalls: [string, () => () => void][] = [];
+  const slots = {
+    inject: vi.fn((key: string, callback: () => () => void) => {
       injectCalls.push([key, callback]);
       return () => undefined;
-    });
-    const register = vi.fn(() => undefined);
-    const ctx = { slots: { inject, register } } as unknown as AuthContext;
-    apply(ctx);
-    expect(injectCalls.map(([key]) => key).sort((a, b) => a.localeCompare(b))).toEqual(
-      ["conversation.session.header.utilities", "shell.overlay"].sort((a, b) => a.localeCompare(b)),
-    );
-    for (const [, callback] of injectCalls) callback();
-    expect(register).toHaveBeenCalledWith(
-      {
-        name: "conversation.session.header.utilities",
-        id: "dsh-auth-gate-logout",
-        order: 10,
-        label: "Sign out",
-      },
-      LogoutAction,
-    );
-    expect(register).toHaveBeenCalledWith(
-      {
-        name: "shell.overlay",
-        id: "dsh-auth-gate-logout-hero",
-        order: 10,
-        label: "Sign out (hero)",
-      },
-      HeroLogoutAction,
-    );
+    }),
+    register: vi.fn(() => () => undefined),
+  };
+  const effect = vi.fn((setup: () => () => void | Iterable<() => void>): void => {
+    setup();
+  });
+  const ctx = { slots, locale, effect } as unknown as AuthContext;
+  return { ctx, localeRegisters, slots, injectCalls };
+}
+
+describe("apply", () => {
+  it("registers zh/en logout dicts and adds the CTA to the settings General item slot", () => {
+    const h = makeApplyHarness();
+    apply(h.ctx);
+    expect(h.localeRegisters).toEqual([
+      ["auth", "zh", { logout: "退出登录" }],
+      ["auth", "en", { logout: "Sign out" }],
+    ]);
+    expect(h.injectCalls.map(([key]) => key).sort((a, b) => a.localeCompare(b))).toEqual([
+      "settings.general.item",
+    ]);
+    const register = h.slots.register as ReturnType<typeof vi.fn>;
+    for (const [, callback] of h.injectCalls) callback();
+    const call = register.mock.calls[0] as unknown as [
+      { name: string; id: string; locale: string; order: number; label: unknown },
+      unknown,
+    ];
+    const [opts, component] = call;
+    expect(opts.name).toBe("settings.general.item");
+    expect(opts.id).toBe("dsh-auth-gate-logout");
+    expect(opts.locale).toBe("auth");
+    expect(opts.order).toBe(30);
+    expect(typeof opts.label).toBe("function");
+    expect((opts.label as () => string)()).toBe("Sign out");
+    expect(component).toBe(SettingsLogoutAction);
   });
 });
 
-describe("LogoutAction (session header)", () => {
+describe("SettingsLogoutAction (settings General CTA)", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
@@ -80,9 +98,15 @@ describe("LogoutAction (session header)", () => {
     return { json: () => Promise.resolve({ authenticated }) };
   }
 
-  it("renders an icon-only logout form when /auth/status says authenticated", async () => {
+  function enT(): () => string {
+    return () => "Sign out";
+  }
+
+  it("renders a prominent logout CTA (post form + 16px icon + en text) when authenticated", async () => {
     fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(createElement(LogoutAction));
+    const { root, container } = await renderElement(
+      createElement(SettingsLogoutAction, { t: enT() }),
+    );
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
     expect(form?.getAttribute("action")).toBe("/auth/logout?next=/");
@@ -90,14 +114,27 @@ describe("LogoutAction (session header)", () => {
     const button = container.querySelector("button");
     expect(button?.getAttribute("aria-label")).toBe("Sign out");
     expect(button?.querySelector("svg")).not.toBeNull();
-    expect(button?.textContent).toBe("");
+    expect(button?.textContent).toContain("Sign out");
+    root.unmount();
+    container.remove();
+  });
+
+  it("shows the zh label when the injected t translates logout to 退出登录", async () => {
+    fetchMock.mockResolvedValue(statusResponse(true));
+    const zh = () => "退出登录";
+    const { root, container } = await renderElement(createElement(SettingsLogoutAction, { t: zh }));
+    const button = container.querySelector("button");
+    expect(button?.getAttribute("aria-label")).toBe("退出登录");
+    expect(button?.textContent).toContain("退出登录");
     root.unmount();
     container.remove();
   });
 
   it("renders nothing when unauthenticated", async () => {
     fetchMock.mockResolvedValue(statusResponse(false));
-    const { root, container } = await renderElement(createElement(LogoutAction));
+    const { root, container } = await renderElement(
+      createElement(SettingsLogoutAction, { t: enT() }),
+    );
     expect(container.querySelector("form")).toBeNull();
     expect(container.textContent).toBe("");
     root.unmount();
@@ -106,147 +143,29 @@ describe("LogoutAction (session header)", () => {
 
   it("renders nothing when the status fetch fails", async () => {
     fetchMock.mockRejectedValue(new Error("network"));
-    const { root, container } = await renderElement(createElement(LogoutAction));
+    const { root, container } = await renderElement(
+      createElement(SettingsLogoutAction, { t: enT() }),
+    );
     expect(container.querySelector("form")).toBeNull();
     root.unmount();
     container.remove();
   });
 
-  it("shows the theme token hover background and clears it on leave", async () => {
+  it("brightens the CTA on hover and clears the filter on leave", async () => {
     fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(createElement(LogoutAction));
+    const { root, container } = await renderElement(
+      createElement(SettingsLogoutAction, { t: enT() }),
+    );
     const button = container.querySelector("button")!;
-    expect(button.style.background).toBe("transparent");
+    expect(button.style.filter).toBe("");
     act(() => {
       button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     });
-    expect(button.style.background).toBe("var(--dsw-alias-interactive-bg-hover)");
+    expect(button.style.filter).toBe("brightness(1.08)");
     act(() => {
       button.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
     });
-    expect(button.style.background).toBe("transparent");
-    root.unmount();
-    container.remove();
-  });
-});
-
-describe("HeroLogoutAction (hero visibility gate)", () => {
-  const fetchMock = vi.fn();
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    fetchMock.mockReset();
-  });
-
-  function statusResponse(authenticated: boolean): unknown {
-    return { json: () => Promise.resolve({ authenticated }) };
-  }
-
-  function sessionsHook(
-    current: string | undefined,
-    byId: Record<string, { blank?: boolean }> = {},
-  ) {
-    return (
-      selector: (state: {
-        current?: string;
-        byId?: Record<string, { blank?: boolean }>;
-      }) => unknown,
-    ) => selector(typeof current === "undefined" ? { byId } : { current, byId });
-  }
-
-  it("renders the floating logout when authenticated and no session is current", async () => {
-    fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(
-      createElement(HeroLogoutAction, { useSessions: sessionsHook(undefined) }),
-    );
-    const form = container.querySelector("form");
-    expect(form).not.toBeNull();
-    expect(form?.getAttribute("action")).toBe("/auth/logout?next=/");
-    const button = container.querySelector("button");
-    expect(button?.getAttribute("aria-label")).toBe("Sign out");
-    root.unmount();
-    container.remove();
-  });
-
-  it("renders the floating logout when the current session is blank (no input/response yet)", async () => {
-    fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(
-      createElement(HeroLogoutAction, {
-        useSessions: sessionsHook("blank-1", { "blank-1": { blank: true } }),
-      }),
-    );
-    expect(container.querySelector("form")).not.toBeNull();
-    root.unmount();
-    container.remove();
-  });
-
-  it("renders nothing when a real (non-blank) session is current", async () => {
-    fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(
-      createElement(HeroLogoutAction, {
-        useSessions: sessionsHook("session-1", { "session-1": { blank: false } }),
-      }),
-    );
-    expect(container.querySelector("form")).toBeNull();
-    expect(container.textContent).toBe("");
-    root.unmount();
-    container.remove();
-  });
-
-  it("renders the floating logout when the current row is missing (transient)", async () => {
-    fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(
-      createElement(HeroLogoutAction, { useSessions: sessionsHook("session-1", {}) }),
-    );
-    expect(container.querySelector("form")).not.toBeNull();
-    root.unmount();
-    container.remove();
-  });
-});
-
-describe("HeroLogoutAction (auth and hook fallback)", () => {
-  const fetchMock = vi.fn();
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    fetchMock.mockReset();
-  });
-
-  function statusResponse(authenticated: boolean): unknown {
-    return { json: () => Promise.resolve({ authenticated }) };
-  }
-
-  function sessionsHook(current: string | undefined) {
-    return (
-      selector: (state: {
-        current?: string;
-        byId?: Record<string, { blank?: boolean }>;
-      }) => unknown,
-    ) => selector(typeof current === "undefined" ? {} : { current });
-  }
-
-  it("renders nothing when unauthenticated even without a current session", async () => {
-    fetchMock.mockResolvedValue(statusResponse(false));
-    const { root, container } = await renderElement(
-      createElement(HeroLogoutAction, { useSessions: sessionsHook(undefined) }),
-    );
-    expect(container.querySelector("form")).toBeNull();
-    root.unmount();
-    container.remove();
-  });
-
-  it("renders when useSessions is absent (treated as hero state)", async () => {
-    fetchMock.mockResolvedValue(statusResponse(true));
-    const { root, container } = await renderElement(createElement(HeroLogoutAction, {}));
-    expect(container.querySelector("form")).not.toBeNull();
+    expect(button.style.filter).toBe("");
     root.unmount();
     container.remove();
   });

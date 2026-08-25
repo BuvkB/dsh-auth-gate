@@ -2,6 +2,14 @@
 
 [English](README.md) | **简体中文**
 
+[![npm version](https://img.shields.io/npm/v/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)
+[![npm downloads](https://img.shields.io/npm/dt/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)
+[![npm monthly downloads](https://img.shields.io/npm/dm/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)
+[![node](https://img.shields.io/node/v/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)
+[![types](https://img.shields.io/npm/types/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)
+[![CI](https://github.com/TecFancy/dsh-auth-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/TecFancy/dsh-auth-gate/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/dsh-auth-gate.svg)](LICENSE)
+
 给 [DeepSeek Harness](https://github.com/deepseek-ai/dsh)（dsh）网页版加一道登录门。部署到
 公网 dsh 实例前面之后，不登录就没人能碰到你的 agent、聊天会话和 LLM 凭证。
 
@@ -52,13 +60,10 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
 ![dsh 实例](docs/demo/dashboard.png)
 
-右上角有一个纯图标登出按钮——**新会话页**（还没有任何输入/响应时）在窗口右上角浮动显示：
-
-![登出按钮 · 新会话页](docs/demo/logout-hero-blank.png)
-
-在**真实会话页**里，它在会话头部右上角（Session log 按钮右侧）：
-
-![登出按钮 · 会话页](docs/demo/logout-conversation-en.png)
+设置面板里有一个醒目的**「退出登录 / Sign out」**按钮——在 **设置 → 通用设置**
+页的最下方（最后一条设置项之后）。它是居中排布的填充式危险按钮（16px 门形图标 +
+本地化文字，配色用主题 token、深浅色自适应）；文案跟随界面语言（复用「设置」里
+语言切换的同一套 locale 机制）；点击走原有的原生 `POST /auth/logout?next=/` 登出流程。
 
 ## 配置
 
@@ -105,7 +110,7 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
 - 禁用用户只阻止**新**登录；已经登录的会话要等它自然过期。
 - 登录限速在服务器重启后清零。
 - 反代部署时，限速按反代出口地址统计。
-- 右上角有登出按钮：会话页在会话头部（Session log 右侧），新会话页在窗口右上角
-  浮动显示；`/auth/logout?next=/` 始终可作为兜底。
+- 设置面板里有「退出登录」按钮：在 设置 → 通用设置 页最下方，文案随语言在
+  「退出登录」/ "Sign out" 间切换；`/auth/logout?next=/` 始终可作为兜底。
 - 本插件只保护 dsh 的网页入口，不能替代服务器层面的安全：请保持服务器系统用户最小权限、
   配置文件私密（`.credentials.yaml` 和 `auth/users.yaml` 创建时即为 `0600` 权限）。
