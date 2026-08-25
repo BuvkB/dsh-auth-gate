@@ -60,15 +60,10 @@ printf '%s\n' '选一个强密码' | dsh-auth user add admin --password-stdin
 
 ![dsh 实例](docs/demo/dashboard.png)
 
-侧边栏底部有一个**登出**行——左栏最下方的脚组里，与「设置」同行分组（不另起分隔线）。
-它是普通列表行：16px 门形图标 + 本地化文字（中文「登出」/ "Sign out"），hover
-背景与侧边栏其他交互行同一主题 token。文案跟随界面语言（复用「设置」里语言切换
-的同一套 locale 机制）；点击走原有的原生 `POST /auth/logout?next=/` 登出流程。
-
-侧边栏底部登出行（设计预览，中/英可切换）：
-
-- [Logout Under Settings (EN)](docs/design/DSH_dsh-auth-gate-_Design_EN/Logout%20Under%20Settings.dc.html)
-- [Logout Under Settings (ZH)](docs/design/DSH_dsh-auth-gate-_Design_ZH/Logout%20Under%20Settings.dc.html)
+设置面板里有一个醒目的**「退出登录 / Sign out」**按钮——在 **设置 → 通用设置**
+页的最下方（最后一条设置项之后）。它是居中排布的填充式危险按钮（16px 门形图标 +
+本地化文字，配色用主题 token、深浅色自适应）；文案跟随界面语言（复用「设置」里
+语言切换的同一套 locale 机制）；点击走原有的原生 `POST /auth/logout?next=/` 登出流程。
 
 ## 配置
 
@@ -115,7 +110,7 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
 - 禁用用户只阻止**新**登录；已经登录的会话要等它自然过期。
 - 登录限速在服务器重启后清零。
 - 反代部署时，限速按反代出口地址统计。
-- 侧边栏底部有登出行：在「设置」同一脚组（文案随语言在「登出」/ "Sign out" 间切换）；
-  `/auth/logout?next=/` 始终可作为兜底。
+- 设置面板里有「退出登录」按钮：在 设置 → 通用设置 页最下方，文案随语言在
+  「退出登录」/ "Sign out" 间切换；`/auth/logout?next=/` 始终可作为兜底。
 - 本插件只保护 dsh 的网页入口，不能替代服务器层面的安全：请保持服务器系统用户最小权限、
   配置文件私密（`.credentials.yaml` 和 `auth/users.yaml` 创建时即为 `0600` 权限）。

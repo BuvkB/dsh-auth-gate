@@ -4,7 +4,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 const LOGOUT_TARGET = "/auth/logout?next=/";
 
 /**
- * 登出图标：16px 列表行图标（viewBox 24 不变，只设 width/height 16）。
+ * 登出图标：16px 按钮图标（viewBox 24 不变，只设 width/height 16）。
  * 沿用原 32px 圆形按钮的同一个 SVG（方框 + 箭头）。
  */
 function renderLogoutIcon() {
@@ -28,40 +28,33 @@ function renderLogoutIcon() {
 }
 
 /**
- * hover 态背景色：与侧边栏其他交互行同主题 token
- * `var(--dsw-alias-interactive-bg-hover)`（浅主题 rgba(38,49,72,.06)，
- * 深主题 rgba(255,255,255,.08)）。
+ * 设置面板内醒目的登出 CTA：错误强调色（危险动作语义）填充按钮 +
+ * 反色标签 `--dsw-alias-label-primary-inverted`，面板内水平居中（General 页底部）。
  */
-const HOVER_BACKGROUND = "var(--dsw-alias-interactive-bg-hover)";
-
-/**
- * 侧边栏 footer 登出行的基础样式：普通列表行（与「设置」同一行语言）——
- * 16px 图标 + 文字标签，display:flex；align-items:center；gap:9px；
- * padding:9px 8px；border-radius:8px。
- */
-const ROW_STYLE: CSSProperties = {
-  display: "flex",
+const CTA_STYLE: CSSProperties = {
+  display: "inline-flex",
   alignItems: "center",
-  gap: 9,
-  padding: "9px 8px",
-  borderRadius: 8,
-  width: "100%",
-  boxSizing: "border-box",
-  color: "var(--dsw-alias-label-primary)",
-  background: "transparent",
-  border: "none",
-  cursor: "pointer",
+  gap: 8,
+  padding: "10px 24px",
+  borderRadius: 12,
+  border: "1px solid var(--dsw-alias-state-error-primary)",
+  background: "var(--dsw-alias-state-error-primary)",
+  color: "var(--dsw-alias-label-primary-inverted)",
   fontFamily: "inherit",
   fontSize: 14,
-  lineHeight: 20,
-  textAlign: "left",
+  fontWeight: 500,
+  lineHeight: "22px",
+  cursor: "pointer",
 };
 
-const labelWrapStyle: CSSProperties = {
-  display: "block",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+/** hover 态轻微提亮（随主题自适应，不硬编码色值）。 */
+const CTA_HOVER_FILTER = "brightness(1.08)";
+
+/** 面板内水平居中容器（General 页最后一条行之后）。 */
+const CTA_WRAP_STYLE: CSSProperties = {
+  display: "flex",
+  justifyContent: "center",
+  padding: "20px 0 4px",
 };
 
 const formStyle: CSSProperties = {
@@ -94,39 +87,40 @@ function useAuthenticated(): boolean | null {
 /** 槽位渲染器按注册 `locale` 注入的 translate 形（本插件 `auth` 词典的 `logout` 键）。 */
 export type LogoutTranslate = (key: string, params?: Record<string, unknown>) => string;
 
-/** 侧边栏 footer 登出行组件（sidebar.footer.action 槽，root 作用域）。 */
-export interface SidebarLogoutActionProps {
-  /** 侧边栏显示态：宽列（false = 56px rail，只画图标列）。 */
-  wide?: boolean;
+/** 设置面板里的登出按钮组件（`settings.general.item` 槽，root 作用域）。 */
+export interface SettingsLogoutActionProps {
   /** 注入的本地化 translate（locale seat）。 */
   t?: LogoutTranslate;
 }
 
 /**
- * 可复用的登出提交行：原生 form POST（零 JS 依赖）+ 16px 方块图标 + 本地化文字 + 主题 hover。
- * 渲染进 `sidebar.footer.action`（侧边栏 footer 的可追加列表槽）——「设置」同一脚组。
+ * 可复用的登出提交按钮：原生 form POST（零 JS 依赖）+ 16px 方块图标 + 本地化文字。
+ * 渲染进 `settings.general.item`（设置 → 通用设置 的追加行槽，order 30 → 页面底部），
+ * 水平居中的醒目 CTA；文案随界面语言在「退出登录」/ "Sign out" 间切换。
  */
-export function SidebarLogoutAction({ t }: SidebarLogoutActionProps) {
+export function SettingsLogoutAction({ t }: SettingsLogoutActionProps) {
   const authenticated = useAuthenticated();
   const [hovered, setHovered] = useState(false);
   if (authenticated !== true) return null;
   const label = typeof t === "function" ? t("logout") : "Sign out";
   return (
     <form method="post" action={LOGOUT_TARGET} style={formStyle}>
-      <button
-        type="submit"
-        aria-label={label}
-        title={label}
-        style={{
-          ...ROW_STYLE,
-          background: hovered ? HOVER_BACKGROUND : "transparent",
-        }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
-        {renderLogoutIcon()}
-        <span style={labelWrapStyle}>{label}</span>
-      </button>
+      <div style={CTA_WRAP_STYLE}>
+        <button
+          type="submit"
+          aria-label={label}
+          title={label}
+          style={{
+            ...CTA_STYLE,
+            filter: hovered ? CTA_HOVER_FILTER : undefined,
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          {renderLogoutIcon()}
+          {label}
+        </button>
+      </div>
     </form>
   );
 }

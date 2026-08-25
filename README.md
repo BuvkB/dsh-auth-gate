@@ -65,18 +65,12 @@ After signing in, they land on your instance:
 
 ![dsh instance](docs/demo/dashboard.png)
 
-A **Sign out** row sits at the **sidebar footer** — the left column's bottom
-foot group, same group as the Settings trigger (no separator line). It's a
-regular list row: a 16px door icon plus a localized label (中文「登出」 /
-"Sign out"), with the same theme-aware hover background as the rest of the
-sidebar. The label follows the GUI language through the same locale mechanism
-the Settings language switch uses; clicking it runs the same native
-`POST /auth/logout?next=/` flow as before.
-
-Sidebar-footer Sign out row (design preview, interactive zh/en toggle):
-
-- [Logout Under Settings (EN)](docs/design/DSH_dsh-auth-gate-_Design_EN/Logout%20Under%20Settings.dc.html)
-- [Logout Under Settings (ZH)](docs/design/DSH_dsh-auth-gate-_Design_ZH/Logout%20Under%20Settings.dc.html)
+A prominent **Sign out / 退出登录** button sits inside the **Settings panel**
+(the Settings → General page, below the last preference row). It's a centered,
+danger-styled filled button (16px door icon + localized label, theme tokens
+for light/dark), and its label follows the GUI language through the same
+locale mechanism the Settings language switch uses. Clicking it runs the same
+native `POST /auth/logout?next=/` flow as before.
 
 ## Configuration
 
@@ -130,9 +124,9 @@ in `deploy/cordis.patch.yml`). The override targets the mounted row by id
   valid until they expire.
 - Login rate limiting resets when the server restarts.
 - Behind a reverse proxy, rate limiting counts by the proxy's address.
-- Sign out from the GUI: a localized "Sign out / 登出" row sits at the sidebar
-  footer, in the same foot group as the Settings trigger (client half,
-  requires the web app's client bundle — dsh 0.1.0-rc.6+); the direct
+- Sign out from the GUI: a prominent "Sign out / 退出登录" button sits in the
+  Settings panel (Settings → General, bottom) — client half, requires the
+  web app's client bundle (dsh 0.1.0-rc.6+); the direct
   `/auth/logout?next=/` URL always works as a fallback.
 - The plugin only protects dsh's web surface. It is not a replacement for
   server-level security: keep the server OS user locked down and the config

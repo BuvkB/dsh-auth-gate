@@ -116,8 +116,8 @@ for i in 1 2 3 4 5 6; do curl -s -o /dev/null -w "%{http_code}\n" -d "username=a
 curl -s -i -d "username=admin&password=<口令>" http://127.0.0.1:3081/auth/login | head -3  # 429 + retry-after
 
 # I. 浏览器通路（可选，须 https 环境）：无痕窗口访问 → 302 到 /auth/login →
-#    登录 → 进入实例；侧边栏底部有本地化「登出 / Sign out」行
-#    （左栏最下方，与「设置」同一脚组；client 半边，0.6.5+），
+#    登录 → 进入实例；设置面板里有醒目的「退出登录 / Sign out」按钮
+#    （设置 → 通用设置 页最下方；client 半边，0.6.5+），
 #    也可 URL 访问 /auth/logout?next=/ 登出。
 ```
 
