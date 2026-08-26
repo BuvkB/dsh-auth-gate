@@ -142,6 +142,27 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
   （反代后设置页 `403`，以及为什么只加认证修不了它）、推荐的半外壳拓扑。
 - [docs/deployment_zh.md](docs/deployment_zh.md) —— 运维清单、验收步骤（A–I）与故障诊断。
 
+## 认证本地代理（可选，dsh-auth-proxy)
+
+> 半外壳解决服务端 `/api` 栅栏后，dsh **客户端**还要求"页面 origin 必须回环"：域名页面下
+> 设置页报 "settings are unavailable in this browser"（与认证无关）。`dsh-auth-proxy`
+> 在用户本机提供回环页面入口，配合 auth-gate 实现"远程编辑配置 + 全程认证"，
+> 不修改 dsh 源码。详细设计见 [docs/local-proxy_zh.md](docs/local-proxy_zh.md)。
+
+- 零依赖 Node bin（`dsh-auth-proxy`）：严格绑定 `127.0.0.1`、无状态透传页面/API、
+  `events.mux`/`events.host` WebSocket 隧道、`Set-Cookie` 去 `Secure` 适配（Safari 兜底）。
+- 认证复用 auth-gate（密码/令牌模式均可）：登录页与会话 cookie 原样透传。
+- **安全边界（deny-list，Phase 2.1）**：配合 `--mark-proxy`，服务端 guard 对标记请求中的
+  `host.pickDirectory`/`host.openPath`/`settings.openDocument`/`llm.discoverModels` 返回 403，
+  防止远程认证用户触发宿主原生能力；未开启标记时行为与未部署代理完全一致。
+
+```sh
+dsh-auth-proxy --listen 127.0.0.1:8443 --target https://your-domain.example --mark-proxy
+# 浏览器打开 http://127.0.0.1:8443 → 登录 →「设置 → 模型」即可编辑
+```
+
+systemd 示例：`deploy/systemd/dsh-auth-proxy.service.example`。
+
 ## 环境要求
 
 - 服务器上需要 Node ≥ 22.19 和 pnpm。

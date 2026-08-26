@@ -1,0 +1,29 @@
+[Unit]
+Description=dsh-auth-gate local proxy (loopback page origin for the dsh configuration plane)
+Documentation=https://github.com/TecFancy/dsh-auth-gate/blob/main/docs/deployment.md#9-authenticated-local-proxy-optional-extension-as-of-2026-08-26
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按实际部署调整：bin 路径与 --target（上游域名）。
+# --mark-proxy 启用 §9.3 的 X-Dsh-Proxy deny-list；本地令牌门示例：
+#   Environment=DSH_AUTH_PROXY_TOKEN=change-me
+#   ExecStart=... --local-token-env DSH_AUTH_PROXY_TOKEN
+ExecStart=/usr/bin/env node /opt/dsh-auth-gate/lib/proxy-cli.js --listen 127.0.0.1:8443 --target https://dsh.hi-ruofei.com --mark-proxy
+Restart=on-failure
+RestartSec=3
+
+# 安全加固：纯回环监听、无特权、只读 + 私密 /tmp；
+# 服务自身无状态，不访问 $HOME（会话保存在浏览器侧）。
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -207,3 +207,74 @@ dsh 0.1.0-rc.6 的 `dsh-client-connection` 把 `settings.*`/`credentials.*`/`llm
 - 会话仍为内存态：dsh-web 重启后所有浏览器需重新登录（旧 cookie 一律 401，属 fail-closed 正常）。
 - 裸奔测试教训：**不要**在无外壳无门卫状态下公网运行——agent 有工作区写权限且
   `$DSH_HOME/.credentials.yaml` 含模型 API key，任何人可白嫖调用。
+
+## 9. 认证本地代理（可选扩展，2026-08-26 起）
+
+> 半外壳（§8）解决了服务端 `/api` 栅栏；但 dsh **客户端**还有一道"页面 origin 必须回环"
+> 的检查（`dsh-client-connection` 的 `isLoopback` 只认 `localhost`/`[::1]`/`127/8`）：页面在
+> 域名下时设置镜像以 memory 模式运行，设置页报 "settings are unavailable in this browser"
+> （客户端自报，与认证无关）。本扩展在**用户本机**提供回环页面入口，配合半外壳与门卫实现
+> "远程编辑配置 + 全程认证"，全程不修改 dsh 源码。
+
+### 9.1 拓扑与认证
+
+```
+用户浏览器 (http://127.0.0.1:8443  ← 页面 origin 回环，客户端放行)
+   └─ dsh-auth-proxy（用户本机，严格绑定 127.0.0.1，无状态透传）
+        └─ https://dsh.hi-ruofei.com（SNI/Host = 域名）
+             └─ Caddy（§8.2 头改写：Host/Origin → 127.0.0.1:3080）
+                  └─ dsh web + dsh-auth-gate（认证逻辑不变）
+```
+
+- 认证复用 auth-gate：登录页与 302/Set-Cookie 原样透传（cookie 归 `127.0.0.1:8443` 名下）；
+  `--strip-secure-cookie`（默认开）在本地明文 http 下移除 `Secure` 属性（回环一跳，
+  Chrome/Firefox 本可保留，Safari 兜底；`HttpOnly`/`SameSite=Lax`/`Path=/` 保留）。
+- 代理不保存任何会话/凭证（无状态，进程重启即失效）。
+- WS 升级（`/api/events.mux`、`/api/events.host`）同样经代理隧道转发。
+
+### 9.2 使用
+
+```sh
+node lib/proxy-cli.js --listen 127.0.0.1:8443 --target https://dsh.hi-ruofei.com --mark-proxy
+# 浏览器打开 http://127.0.0.1:8443 → auth-gate 登录 → 「设置 → 模型」即可编辑
+```
+
+| 参数                      | 默认                        | 说明                                                                                         |
+| ------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| `--listen`                | `127.0.0.1:8443`            | 必须回环（非回环拒绝启动，防局域网跳板）                                                     |
+| `--target`                | `https://dsh.hi-ruofei.com` | 上游；默认 https 并校验 TLS                                                                  |
+| `--strip-secure-cookie`   | 开（`--no-…` 关闭）         | 本地明文 http 下去掉 `Secure`                                                                |
+| `--mark-proxy`            | 关                          | 每请求加 `X-Dsh-Proxy: 1`（启用 §9.3 的 deny-list）                                          |
+| `--local-token-env <VAR>` | 无                          | 所有经代理请求须带 `Authorization: Bearer <环境变量值>`（fail-closed：变量未设置则拒绝启动） |
+| `--unsafe-plain-target`   | 关                          | 允许 `http://` 上游（仅本机验证场景）                                                        |
+
+### 9.3 安全边界：`X-Dsh-Proxy` deny-list（Phase 2.1）
+
+代理链路下 `/api` 围栏会把 `host.pickDirectory`、`host.openPath`、`settings.openDocument`、
+`llm.discoverModels` 也判为 loopback → 远程"认证用户"可触发**宿主原生能力**（文件对话框、
+打开宿主路径、SSRF 式探测）。防线：代理加 `--mark-proxy`，auth-gate guard 在认证通过后对
+命中上述方法的标记请求直接 `403 forbidden`（与 /api 围栏同形）。
+
+- **默认不标记 → 行为与未部署代理完全一致**；安全边界由运维显式开启。
+- 仅 HTTP 路由生效；WS 通道（事件流）不在禁行列表，不受影响。
+- 标记头可被伪造，但只会反过来禁行伪造者自己（拒绝是自指的），无放大面。
+
+### 9.4 systemd 单元
+
+模板见 `deploy/systemd/dsh-auth-proxy.service.example`：
+
+```sh
+sudo cp deploy/systemd/dsh-auth-proxy.service.example /etc/systemd/system/dsh-auth-proxy.service
+# 按实际路径编辑 ExecStart（bin 与 --target 两项）
+sudo systemctl daemon-reload && sudo systemctl enable --now dsh-auth-proxy
+```
+
+### 9.5 验证清单（部署后逐项）
+
+1. 代理启动打印 `listening on http://127.0.0.1:8443 -> …`，非回环 `--listen` 直接报错退出；
+2. curl `GET /`（`Accept: text/html`）→ `302 /auth/login`；
+3. `POST /auth/login` → `302 + set-cookie`（**无 `Secure`** 属性）；
+4. 带 cookie `POST /api/settings.describe`（RPC 信封 `{"type":"client-request","rpcId":"x","method":"…","payload":{}}`，`Content-Type: application/json`）→ `200 {"ok":true,…}`；
+5. 浏览器：登录后「设置 → 模型」无 "settings are unavailable"、提供方行可编辑；
+6. 开 `--mark-proxy`：标记请求 `settings.describe` 仍 200，`host.openPath` → 403；
+7. 回归：直连 `https://dsh.hi-ruofei.com` 的模型页仍显示原错误（预期，未走代理）。
