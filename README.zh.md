@@ -144,6 +144,13 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
 
 ## 认证本地代理（可选，dsh-auth-proxy)
 
+> ⚠️ **已知限制（重要，任何 auth-gate 版本都不改变）**：dsh 的设置页（"设置 → 模型"等）
+> 只允许在**页面 origin 为回环**（`localhost`/`127.x`）时编辑。这是 dsh 客户端
+> （`isLoopback` 检查）的设计边界，与认证正交——**域名页面打开设置弹框会显示
+> "settings are unavailable in this browser"，无法编辑提供方/凭据，升级 dsh-auth-gate
+> 也无法改变**。要编辑配置，请用本节的本地代理，或直接在服务器上访问
+> `http://127.0.0.1:3080`。域名页面的聊天与模型选择不受影响。
+
 > 半外壳解决服务端 `/api` 栅栏后，dsh **客户端**还要求"页面 origin 必须回环"：域名页面下
 > 设置页报 "settings are unavailable in this browser"（与认证无关）。`dsh-auth-proxy`
 > 在用户本机提供回环页面入口，配合 auth-gate 实现"远程编辑配置 + 全程认证"，
