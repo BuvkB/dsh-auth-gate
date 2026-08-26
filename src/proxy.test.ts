@@ -57,13 +57,15 @@ function firstUpgradeResponse(socket: ReturnType<typeof connect>): Promise<strin
   });
 }
 
-/** 向某代理地址发起 WS 升级请求，返回 socket 与响应头。 */
+/** 向某代理地址发起 WS 升级请求（可附加头），返回 socket 与响应头。 */
 async function upgradeThrough(
   url: string,
+  extraHeaders = "",
 ): Promise<{ socket: ReturnType<typeof connect>; head: string }> {
   const sock = connect(Number(url.split(":").pop()), "127.0.0.1");
   const headPromise = firstUpgradeResponse(sock);
-  sock.write(UPGRADE_REQUEST);
+  const base = UPGRADE_REQUEST.replace(/\r\n\r\n$/, "");
+  sock.write(`${base}\r\n${extraHeaders}\r\n\r\n`);
   const head = await headPromise;
   return { socket: sock, head };
 }
@@ -144,6 +146,14 @@ describe("HTTP forwarding basics", () => {
     expect(res.status).toBe(200);
     expect(res.cookie).toEqual(["s=t; HttpOnly; SameSite=Lax"]);
   });
+
+  it("keeps Secure when stripping is disabled", async () => {
+    const keep = createProxyServer(baseOptions({ target: fx.originUrl, stripSecureCookie: false }));
+    const url = await listenServer(keep);
+    const res = await httpGet(`${url}/secure`);
+    expect(res.cookie).toEqual(["s=t; HttpOnly; Secure; SameSite=Lax"]);
+    keep.close();
+  });
 });
 
 describe("HTTP forwarding marker and guards", () => {
@@ -182,15 +192,24 @@ describe("WebSocket upgrade forwarding", () => {
   proxyHooks(fx);
 
   it("tunnels a 101 upgrade and echoes data both ways", async () => {
-    fx.origin?.on("upgrade", (_req, socket) => {
+    let seenProtocol = "";
+    let seenExtensions = "";
+    fx.origin?.on("upgrade", (req, socket) => {
+      seenProtocol = String(req.headers["sec-websocket-protocol"] ?? "");
+      seenExtensions = String(req.headers["sec-websocket-extensions"] ?? "");
       socket.write(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: echo\r\n\r\n",
       );
       socket.on("data", (chunk) => socket.write(chunk));
     });
-    const { socket: sock, head } = await upgradeThrough(fx.proxyUrl);
+    const { socket: sock, head } = await upgradeThrough(
+      fx.proxyUrl,
+      "Sec-WebSocket-Protocol: chat\r\nSec-WebSocket-Extensions: permessage-deflate",
+    );
     expect(head).toMatch(/^HTTP\/1\.1 101/);
     expect(head).toMatch(/sec-websocket-accept:\s*echo/i);
+    expect(seenProtocol).toBe("chat");
+    expect(seenExtensions).toContain("permessage-deflate");
     const echoed = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("echo timeout")), 2000);
       sock.once("data", (chunk) => {
@@ -219,6 +238,23 @@ describe("WebSocket upgrade forwarding", () => {
     const url = await listenServer(guarded);
     const { socket: sock, head } = await upgradeThrough(url);
     expect(head).toMatch(/^HTTP\/1\.1 401/);
+    sock.destroy();
+    guarded.close();
+  });
+
+  it("allows the upgrade when the local token matches", async () => {
+    let calls = 0;
+    fx.origin?.on("upgrade", (_req, socket) => {
+      calls += 1;
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ok\r\n\r\n",
+      );
+    });
+    const guarded = createProxyServer(baseOptions({ target: fx.originUrl, localToken: "secret" }));
+    const url = await listenServer(guarded);
+    const { socket: sock, head } = await upgradeThrough(url, "Authorization: Bearer secret");
+    expect(head).toMatch(/^HTTP\/1\.1 101/);
+    expect(calls).toBe(1);
     sock.destroy();
     guarded.close();
   });
