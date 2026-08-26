@@ -7,6 +7,10 @@ export declare const GUARDED: unique symbol;
 export declare const LOGIN_PATH = "/auth/login";
 /** auth 公共路径前缀（两种 gate 的白名单：登录/登出/状态端点免守卫）。 */
 export declare const AUTH_PATH_PREFIX = "/auth";
+/** 认证本地代理（`dsh-auth-proxy --mark-proxy`）附加的请求标记头。 */
+export declare const PROXY_MARKER_HEADER = "x-dsh-proxy";
+/** 是否命中"代理标记 + 禁行方法"：`/api/<method>` 路径上带 `X-Dsh-Proxy: 1`。 */
+export declare function isProxyDeniedRequest(req: IncomingMessage, pathname: string): boolean;
 export type HttpHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 export type UpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;
 export interface WrappableRoute {
@@ -50,6 +54,8 @@ export declare function guardUpgrade(gate: () => Gate, handler: UpgradeHandler):
 export declare function denyHttp(req: IncomingMessage, res: ServerResponse): void;
 /** 拒绝一个 WS 升级：写 401 响应行后销毁 socket，不进入 ws 协商。 */
 export declare function denyUpgrade(socket: Duplex): void;
+/** 403 拒绝（代理标记命中）：与 dsh /api 围栏同形（forbidden），禁缓存。 */
+export declare function denyForbidden(res: ServerResponse): void;
 /**
  * 包装一个 WrappableServer：存量表 + fallback 原地换守卫，三个注册方法替换为
  * 守卫版本（增量保险，apply 顺序无关）。幂等：同一 server 第二次调用返回同一

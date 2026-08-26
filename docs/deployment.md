@@ -43,6 +43,9 @@ dsh plugin --profile web add dsh-auth-gate   # forwards to pnpm, resolved from p
 - After installation, the `dependencies` of `$DSH_HOME/profiles/web/package.json` include
   `dsh-auth-gate`; dependencies (`yaml`, `@deepseek-ai/*`) are resolved automatically from public
   npm.
+- The CLI binary is **not** added to `PATH` — `dsh plugin add` only runs pnpm in the profile
+  directory, so `dsh-auth` resolves exclusively from
+  `$DSH_HOME/profiles/web/node_modules/.bin`. §2 shows the correct invocation.
 - Upgrade: re-run the same command (pnpm pulls the new version).
 - Uninstall: `dsh plugin --profile web remove dsh-auth-gate` (since 0.4.1 the bundle
   declaration makes `dsh plugin add` register the mount in `dsh.profile.bundles`, so
@@ -54,9 +57,13 @@ dsh plugin --profile web add dsh-auth-gate   # forwards to pnpm, resolved from p
 1. **Create the administrator** (`users.yaml` is auto-created at
    `$DSH_HOME/auth/users.yaml`, 0600):
    ```bash
-   printf '%s\n' '<strong password>' | dsh-auth user add admin --password-stdin
-   dsh-auth user list                    # confirm
+   # The CLI is not on PATH (see §1): call it through the profile.
+   printf '%s\n' '<strong password>' | \
+     pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user add admin --password-stdin
+   pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user list   # confirm
    ```
+   Alternative (no pnpm needed at runtime):
+   `node "$DSH_HOME/profiles/web/node_modules/dsh-auth-gate/lib/cli.js" ...`.
    Multiple administrators: repeat `user add`; disable: `dsh-auth user disable <name>`.
 2. **Config override**: copy the repo's `deploy/cordis.patch.yml` to
    `$DSH_HOME/cordis.patch.yml` — since 0.4.1 the template is a pure config
@@ -228,3 +235,84 @@ public dsh.hi-ruofei.com (Caddy, TLS)
 - Bare-running lesson: **do not** run bare in public without the shell and without the guard —
   agents have workspace write access and `$DSH_HOME/.credentials.yaml` contains model API keys,
   so anyone could freely invoke them.
+
+## 9. Authenticated Local Proxy (optional extension, as of 2026-08-26)
+
+> The semi-shell (§8) fixed the server-side `/api` fence; dsh's **client** still has a
+> "page origin must be loopback" check (`isLoopback` in `dsh-client-connection` only accepts
+> `localhost` / `[::1]` / `127/8`): on a domain page the settings mirror runs in memory mode and
+> the settings page reports "settings are unavailable in this browser" (client-side, unrelated
+> to authentication). This extension provides a loopback page entry on the **user's machine**,
+> composing with the semi-shell and the guard to deliver "remote config editing with real
+> authentication throughout", without touching dsh sources.
+
+### 9.1 Topology and Authentication
+
+```
+User browser (http://127.0.0.1:8443  -- page origin loopback; client-side gate passes)
+   └─ dsh-auth-proxy (user machine, strictly bound to 127.0.0.1, stateless pass-through)
+        └─ https://dsh.hi-ruofei.com (SNI/Host = domain)
+             └─ Caddy (§8.2 header rewrite: Host/Origin -> 127.0.0.1:3080)
+                  └─ dsh web + dsh-auth-gate (authentication unchanged)
+```
+
+- Authentication reuses auth-gate: the login page and its 302/Set-Cookie pass through untouched
+  (the cookie is owned by `127.0.0.1:8443`); `--strip-secure-cookie` (default on) removes the
+  `Secure` attribute over plain-text loopback HTTP (one hop only; Chrome/Firefox would keep it
+  anyway; Safari fallback). `HttpOnly`/`SameSite=Lax`/`Path=/` are preserved.
+- The proxy stores no sessions or credentials (stateless; restart simply invalidates it).
+- WebSocket upgrades (`/api/events.mux`, `/api/events.host`) are tunneled through the proxy too.
+
+### 9.2 Usage
+
+```sh
+node lib/proxy-cli.js --listen 127.0.0.1:8443 --target https://dsh.hi-ruofei.com --mark-proxy
+# Open http://127.0.0.1:8443 in the browser -> auth-gate login -> edit the settings pages
+```
+
+| Flag                      | Default                     | Purpose                                                                                                             |
+| ------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--listen`                | `127.0.0.1:8443`            | Must be loopback (startup refuses anything else; no LAN trampoline)                                                 |
+| `--target`                | `https://dsh.hi-ruofei.com` | Upstream; requires https with TLS verification by default                                                           |
+| `--strip-secure-cookie`   | on (`--no-…` disables)      | Remove `Secure` over plain-text loopback HTTP                                                                       |
+| `--mark-proxy`            | off                         | Add `X-Dsh-Proxy: 1` to every request (enables the §9.3 deny-list)                                                  |
+| `--local-token-env <VAR>` | none                        | Every request must carry `Authorization: Bearer <env value>` (fail-closed: startup errors if the variable is unset) |
+| `--unsafe-plain-target`   | off                         | Allow `http://` upstreams (local verification only)                                                                 |
+
+### 9.3 Security Boundary: the `X-Dsh-Proxy` Deny-List (Phase 2.1)
+
+Through the proxy the `/api` fence also treats `host.pickDirectory`, `host.openPath`,
+`settings.openDocument` and `llm.discoverModels` as loopback, so a remote _authenticated_ user
+could trigger **host-native capabilities** (dialogs, opening host paths, SSRF-style probes).
+Defense: run the proxy with `--mark-proxy`; the auth-gate guard answers `403 forbidden` (same
+shape as the `/api` fence) for marked requests hitting those methods, after the gate allowed them.
+
+- **Unmarked traffic behaves exactly as if the proxy were not deployed**; the operator opts in.
+- HTTP routes only; the WebSocket event channels are not on the deny list and are unaffected.
+- The marker header is spoofable, but spoofing only denies the spoofing caller (the refusal is
+  self-inflicted); no amplification surface.
+
+### 9.4 systemd Unit
+
+Template: `deploy/systemd/dsh-auth-proxy.service.example`
+
+```sh
+sudo cp deploy/systemd/dsh-auth-proxy.service.example /etc/systemd/system/dsh-auth-proxy.service
+# Edit ExecStart (binary path and --target) for the actual deployment
+sudo systemctl daemon-reload && sudo systemctl enable --now dsh-auth-proxy
+```
+
+### 9.5 Acceptance Checklist (run each item after deployment)
+
+1. The proxy prints `listening on http://127.0.0.1:8443 -> …`; a non-loopback `--listen` exits
+   with an error;
+2. `curl GET /` (with `Accept: text/html`) -> `302 /auth/login`;
+3. `POST /auth/login` -> `302 + set-cookie` (**without `Secure`**);
+4. With the cookie, `POST /api/settings.describe` (RPC envelope
+   `{"type":"client-request","rpcId":"x","method":"…","payload":{}}`,
+   `Content-Type: application/json`) -> `200 {"ok":true,…}`;
+5. Browser: after login, "Settings -> Models" shows no "settings are unavailable" and the
+   provider rows are editable;
+6. With `--mark-proxy`: a marked `settings.describe` still returns 200; `host.openPath` returns 403;
+7. Regression: the models page opened directly on `https://dsh.hi-ruofei.com` still shows the
+   original error (expected — no proxy).

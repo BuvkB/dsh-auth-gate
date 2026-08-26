@@ -37,6 +37,10 @@ in first.
   dsh-auth user disable admin                 # block a user's future logins
   ```
 
+  `dsh-auth` is directly on your PATH when the package is installed globally.
+  After `dsh plugin add` the binary lives inside the profile and must be called
+  through it — see [Quick start](#quick-start).
+
 ## Quick start
 
 ```sh
@@ -45,8 +49,12 @@ in first.
 #    also registers the mount (dsh.profile.bundles) automatically:
 dsh plugin --profile web add dsh-auth-gate
 
-# 2. Create an admin account
-printf '%s\n' 'choose-a-strong-password' | dsh-auth user add admin --password-stdin
+# 2. Create an admin account.
+#    `dsh plugin add` installs the plugin into the profile's node_modules
+#    ($DSH_HOME/profiles/web, default ~/.dsh/...) — the CLI is NOT added to your
+#    PATH, so call it through the profile. `dsh plugin` already requires pnpm:
+printf '%s\n' 'choose-a-strong-password' | \
+  pnpm --dir "$DSH_HOME/profiles/web" exec dsh-auth user add admin --password-stdin
 
 # 3. Turn on password login: override the plugin config in $DSH_HOME/cordis.patch.yml
 #    (a ready-to-use config-override template ships in deploy/cordis.patch.yml;
@@ -96,6 +104,47 @@ in `deploy/cordis.patch.yml`). The override targets the mounted row by id
 | `tokenRef`     | `"DSH_AUTH_TOKEN"` | Token mode only: which environment variable holds the shared secret                |
 | `cookieSecure` | `true`             | Set to `false` only if you are testing over plain http                             |
 | `usersFile`    | `""`               | Password mode: where your user list lives. Defaults to `$DSH_HOME/auth/users.yaml` |
+
+## Troubleshooting
+
+### `dsh-auth: command not found`
+
+`dsh plugin --profile web add dsh-auth-gate` installs the package into the
+profile's `node_modules` (`$DSH_HOME/profiles/web/node_modules/dsh-auth-gate`,
+default `~/.dsh/...`), but nothing is added to your shell's `PATH`, so the CLI
+binary is not callable by name. This only affects the CLI — the plugin itself
+runs fine. Pick one:
+
+1. **Call it through the profile (recommended).** `dsh plugin` already requires
+   pnpm, so the CLI resolves from the same place the plugin lives:
+
+   ```sh
+   pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth user add admin --password-stdin
+   pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth user list
+   ```
+
+   Optionally, once per shell session:
+
+   ```sh
+   alias dsh-auth='pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth'
+   ```
+
+2. **Direct node invocation** (no pnpm needed at runtime):
+
+   ```sh
+   node "$DSH_HOME/profiles/web/node_modules/dsh-auth-gate/lib/cli.js" user add admin --password-stdin
+   ```
+
+3. **Install the package globally**, then `dsh-auth` is on your PATH:
+
+   ```sh
+   npm install -g dsh-auth-gate
+   dsh-auth user add admin --password-stdin
+   ```
+
+Whichever way you call it, the CLI manages the same shared user list
+(`$DSH_HOME/auth/users.yaml`, fallback `~/.dsh/auth/users.yaml`) that the plugin
+reads — the global copy is just a launcher.
 
 ## Deployment
 

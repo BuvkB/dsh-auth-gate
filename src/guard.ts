@@ -11,6 +11,29 @@ export const LOGIN_PATH = "/auth/login";
 /** auth 公共路径前缀（两种 gate 的白名单：登录/登出/状态端点免守卫）。 */
 export const AUTH_PATH_PREFIX = "/auth";
 
+/** 认证本地代理（`dsh-auth-proxy --mark-proxy`）附加的请求标记头。 */
+export const PROXY_MARKER_HEADER = "x-dsh-proxy";
+
+/**
+ * 代理链路下会被 dsh /api 围栏判定为 loopback、但语义属于"远程可控宿主/侦察"
+ * 的方法：经代理（携带标记头）的请求对这些方法直接 403，作为本地代理场景的
+ * 安全边界收口。其余方法（settings 与 credentials 域的读写）经认证后正常放行。
+ * 注意：生效前提是代理开启 `--mark-proxy`；无标记头时行为与未部署代理完全一致。
+ */
+const PROXY_DENIED_METHODS = new Set([
+  "host.pickDirectory",
+  "host.openPath",
+  "settings.openDocument",
+  "llm.discoverModels",
+]);
+
+/** 是否命中"代理标记 + 禁行方法"：`/api/<method>` 路径上带 `X-Dsh-Proxy: 1`。 */
+export function isProxyDeniedRequest(req: IncomingMessage, pathname: string): boolean {
+  if (req.headers[PROXY_MARKER_HEADER] !== "1") return false;
+  if (!pathname.startsWith("/api/")) return false;
+  return PROXY_DENIED_METHODS.has(pathname.slice(5));
+}
+
 export type HttpHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 
 export type UpgradeHandler = (
@@ -64,6 +87,10 @@ export function guardHttp(gate: () => Gate, kind: GuardKind, handler: HttpHandle
     const pathname = new URL(req.url ?? "/", "http://x").pathname;
     const decision = await gate().decide(req, kind, pathname);
     if (decision === "allow") {
+      if (isProxyDeniedRequest(req, pathname)) {
+        denyForbidden(res);
+        return;
+      }
       await handler(req, res);
       return;
     }
@@ -115,6 +142,13 @@ export function denyHttp(req: IncomingMessage, res: ServerResponse): void {
 export function denyUpgrade(socket: Duplex): void {
   socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
   socket.destroy();
+}
+
+/** 403 拒绝（代理标记命中）：与 dsh /api 围栏同形（forbidden），禁缓存。 */
+export function denyForbidden(res: ServerResponse): void {
+  res.setHeader("cache-control", "no-store");
+  res.writeHead(403, { "content-type": "text/plain" });
+  res.end("forbidden");
 }
 
 const unwrappers = new WeakMap<WrappableServer, () => void>();
