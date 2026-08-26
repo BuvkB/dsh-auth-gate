@@ -56,11 +56,16 @@ function makeFakeServer(): WrappableServer {
   return server;
 }
 
-function makeReq(url: string, method = "GET", accept?: string): IncomingMessage {
+function makeReq(
+  url: string,
+  method = "GET",
+  accept?: string,
+  extra?: Record<string, string>,
+): IncomingMessage {
   return {
     url,
     method,
-    headers: accept === undefined ? {} : { accept },
+    headers: accept === undefined ? { ...extra } : { accept, ...extra },
   } as unknown as IncomingMessage;
 }
 
