@@ -7,7 +7,8 @@ name: sync-upstream
 # - fork 的 main（默认分支）= 上游 main + 登录页美化 + rebuilt lib + 本文件
 #   —— 插件市场/DSH 安装源指向 github:BuvkB/dsh-auth-gate（无分支）
 #     解析到的就是“上游最新 + 美化”
-# - fork 的 feat/login-page-localization = main 镜像，供上游 PR #53 参考
+# - fork 的 feat/login-page-localization 冻结为 PR #53 版本（含 README fork banner 的
+#   主页内容不进入 PR，避免上游看到 fork 专属内容）
 # - 冲突（通常是上游改了登录页/相关源码）不会乱推：开 issue 由人/AI 处理
 on:
   schedule:
@@ -68,13 +69,6 @@ jobs:
             git commit -m "chore(lib): rebuild artifacts after upstream sync"
           fi
           git push origin main --force-with-lease
-
-      - name: Mirror main onto PR branch
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          git checkout feat/login-page-localization
-          git reset --hard origin/main
-          git push origin feat/login-page-localization --force-with-lease
 
       - name: Notify on conflict
         if: failure()

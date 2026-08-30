@@ -1,5 +1,28 @@
 # dsh-auth-gate
 
+<!-- fork-banner-start (BuvkB fork) - 上游同步冲突时以此标记快速定位 -->
+
+> ## 🎨 BuvkB fork：登录页自定义美化
+>
+> 本 fork 完整保留原作者（TecFancy/dsh-auth-gate）的全部内容与功能，仅将登录页美化改版：
+>
+> - 官方 deepseek HARNESS 完整字标 + 品牌标语「探索未至之境 / Into the Unknown」（官网同款 blend 光标逐字悬停动效）
+> - 药丸形输入框、灰黑主按钮、柔和悬浮阴影（视觉参考 DeepSeek 官网与 Apple 设计）
+> - 中英文自动切换（Accept-Language）· WCAG AA 对比度 · `npm run verify` 全绿
+> - 上游更新每日自动合并（GitHub Actions rebase + 重建产物），本 fork 始终保持「上游最新 + 美化」
+>
+> | 中文登录页                                 | 中文（悬停动效）                                       |
+> | ------------------------------------------ | ------------------------------------------------------ |
+> | ![login-zh](docs/screenshots/login-zh.png) | ![login-zh-hover](docs/screenshots/login-zh-hover.png) |
+>
+> | 英文登录页                                 | 移动端                                                   |
+> | ------------------------------------------ | -------------------------------------------------------- |
+> | ![login-en](docs/screenshots/login-en.png) | ![login-zh-mobile](docs/screenshots/login-zh-mobile.png) |
+>
+> _以下为原作者 README，原样保留，未做任何改动。_
+
+<!-- fork-banner-end -->
+
 [English](README.md) | **简体中文**
 
 [![npm version](https://img.shields.io/npm/v/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)

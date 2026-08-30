@@ -1,5 +1,28 @@
 # dsh-auth-gate
 
+<!-- fork-banner-start (BuvkB fork) - upstream sync conflict resolution marker -->
+
+> ## 🎨 BuvkB fork: custom-themed login page
+>
+> This fork keeps the entire upstream (TecFancy/dsh-auth-gate) content and functionality unchanged, and restyles the login page:
+>
+> - Official deepseek HARNESS wordmark + brand slogan (Into the Unknown) with the official blend-cursor per-character hover effect
+> - Pill-shaped inputs, charcoal primary button, soft floating shadows (DeepSeek official / Apple design language)
+> - Automatic zh/en switching (Accept-Language) · WCAG AA contrast · `npm run verify` fully green
+> - Upstream changes are auto-merged daily (GitHub Actions rebase + rebuild), so this fork is always "latest upstream + theme"
+>
+> | zh login page                              | zh login (hover effect)                                |
+> | ------------------------------------------ | ------------------------------------------------------ |
+> | ![login-zh](docs/screenshots/login-zh.png) | ![login-zh-hover](docs/screenshots/login-zh-hover.png) |
+>
+> | en login page                              | mobile                                                   |
+> | ------------------------------------------ | -------------------------------------------------------- |
+> | ![login-en](docs/screenshots/login-en.png) | ![login-zh-mobile](docs/screenshots/login-zh-mobile.png) |
+>
+> _The upstream README below is unchanged._
+
+<!-- fork-banner-end -->
+
 **English** | [简体中文](README.zh.md)
 
 [![npm version](https://img.shields.io/npm/v/dsh-auth-gate.svg)](https://www.npmjs.com/package/dsh-auth-gate)
