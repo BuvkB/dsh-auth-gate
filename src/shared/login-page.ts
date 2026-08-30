@@ -266,7 +266,6 @@ export function loginPageHtml(next: string, error?: string, lang?: string): stri
 export function passwordLoginPageHtml(next: string, error?: string, lang?: string): string {
   const s = loginStrings(lang);
   return renderLoginCard({
-<<<<<<< HEAD:src/shared/login-page.ts
     title: s.passwordTitle,
     subtitle: s.passwordSubtitle,
     fields: [
