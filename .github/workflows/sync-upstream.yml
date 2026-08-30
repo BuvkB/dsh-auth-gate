@@ -11,7 +11,7 @@ name: sync-upstream
 # - 冲突（通常是上游改了登录页/相关源码）不会乱推：开 issue 由人/AI 处理
 on:
   schedule:
-    - cron: '0 3 * * *' # 每天 03:00 UTC（北京时间 11:00）
+    - cron: "0 3 * * *" # 每天 03:00 UTC（北京时间 11:00）
   workflow_dispatch:
 
 permissions:

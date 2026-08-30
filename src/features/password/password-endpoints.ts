@@ -1,20 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { validateNext, parseCookieHeader, passwordLoginPageHtml } from "../../shared/index.js";
+import {
+  validateNext,
+  parseCookieHeader,
+  passwordLoginPageHtml,
+  langOf,
+} from "../../shared/index.js";
 import { AUTH_PATH_PREFIX, type HttpHandler } from "../../gate/index.js";
 import { handlePasswordLogin, type PasswordLoginDeps } from "./password-login.js";
 import { buildSetCookie } from "../../session/index.js";
-
-/** 从 Accept-Language 头判断登录页语言（zh 开头 => 中文）。 */
-function langOf(req: { headers?: { [k: string]: string | undefined } }): string {
-  try {
-    const h = req.headers?.["accept-language"] ?? "";
-    if (/^\s*zh/i.test(h) || /,\s*zh/i.test(h)) return "zh";
-  } catch (_e) {
-    // ignore
-  }
-  return "en";
-}
-
 
 export interface PasswordEndpointsDeps extends PasswordLoginDeps {
   /** 注册路由（index.ts 传入包装后的 server.register；被守卫包装但被 gate 白名单放行）。 */
