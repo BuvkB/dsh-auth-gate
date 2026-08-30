@@ -87,14 +87,32 @@ bundle 挂载行（id `dsh-auth-gate`，由 `dsh plugin add` 自动插入）使�
     cookieSecure: true # 使用 https 时保持 true
 ```
 
-| 选项           | 默认值             | 作用                                                         |
-| -------------- | ------------------ | ------------------------------------------------------------ |
-| `mode`         | `"token"`          | `"password"` = 用户名密码登录；`"token"` = 一个共享秘密      |
-| `sessionTtl`   | `604800`           | 一次登录持续多久（秒），到期需重新登录                       |
-| `cookieName`   | `dsh_auth`         | 会话 cookie 的名字（很少需要改）                             |
-| `tokenRef`     | `"DSH_AUTH_TOKEN"` | 仅令牌模式：共享秘密存在哪个环境变量里                       |
-| `cookieSecure` | `true`             | 只在纯 http 测试环境设为 `false`                             |
-| `usersFile`    | `""`               | 密码模式：用户列表文件位置。默认 `$DSH_HOME/auth/users.yaml` |
+| 选项           | 默认值             | 作用                                                                                                      |
+| -------------- | ------------------ | --------------------------------------------------------------------------------------------------------- |
+| `mode`         | `"token"`          | `"password"` = 用户名密码登录；`"token"` = 一个共享秘密                                                   |
+| `sessionTtl`   | `604800`           | 一次登录持续多久（秒），到期需重新登录                                                                    |
+| `cookieName`   | `dsh_auth`         | 会话 cookie 的名字（很少需要改）                                                                          |
+| `tokenRef`     | `"DSH_AUTH_TOKEN"` | 仅令牌模式：共享秘密存在哪个环境变量里                                                                    |
+| `cookieSecure` | `true`             | 只在纯 http 测试环境设为 `false`                                                                          |
+| `usersFile`    | `""`               | 密码模式：用户列表文件位置。默认 `$DSH_HOME/auth/users.yaml`                                              |
+| `logoutOrder`  | `1000`             | 「退出登录」按钮在 设置 → 通用设置 页的槽位顺序（越大越靠底）。若有其他插件注册了更大的 order，可调大此值 |
+
+## 内置配置技能
+
+本包随附一份配置速查技能（`.agents/skills/dsh-auth-gate-config/`，即本页内容）。
+把它安装到用户级技能目录后，部署侧的 dsh agent 就能直接回答「auth-gate 支持哪些配置」：
+
+```sh
+pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/<profile>" exec dsh-auth skill install [--force]
+```
+
+该命令把技能复制到 `$DSH_HOME/skills/dsh-auth-gate-config/`，dsh 技能发现机制会自动
+加载。重复执行不带 `--force` 会保留你对技能的本地修改；`--force` 从包内刷新。
+
+该技能是**仅用户可用技能**（frontmatter 里 `disable-model-invocation: true`）：
+它不会出现在模型的可自动调用技能目录中（不常驻每一轮 agent 上下文），需要查配置时
+在技能面板显式打开即可（输入框 `/` 菜单里标记 `仅用户`）。若希望 agent 自动回答配置
+问题，安装后移除该 frontmatter 字段即可。
 
 ## 故障排查
 

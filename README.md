@@ -96,14 +96,79 @@ in `deploy/cordis.patch.yml`). The override targets the mounted row by id
     cookieSecure: true # keep true when you use https
 ```
 
-| Option         | Default            | What it does                                                                       |
-| -------------- | ------------------ | ---------------------------------------------------------------------------------- |
-| `mode`         | `"token"`          | `"password"` = username/password login; `"token"` = one shared secret              |
-| `sessionTtl`   | `604800`           | How long a login lasts (seconds) before you must sign in again                     |
-| `cookieName`   | `dsh_auth`         | Name of the session cookie (rarely needs changing)                                 |
-| `tokenRef`     | `"DSH_AUTH_TOKEN"` | Token mode only: which environment variable holds the shared secret                |
-| `cookieSecure` | `true`             | Set to `false` only if you are testing over plain http                             |
-| `usersFile`    | `""`               | Password mode: where your user list lives. Defaults to `$DSH_HOME/auth/users.yaml` |
+| Option         | Default            | What it does                                                                                                                                |
+| -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`         | `"token"`          | `"password"` = username/password login; `"token"` = one shared secret                                                                       |
+| `sessionTtl`   | `604800`           | How long a login lasts (seconds) before you must sign in again                                                                              |
+| `cookieName`   | `dsh_auth`         | Name of the session cookie (rarely needs changing)                                                                                          |
+| `tokenRef`     | `"DSH_AUTH_TOKEN"` | Token mode only: which environment variable holds the shared secret                                                                         |
+| `cookieSecure` | `true`             | Set to `false` only if you are testing over plain http                                                                                      |
+| `usersFile`    | `""`               | Password mode: where your user list lives. Defaults to `$DSH_HOME/auth/users.yaml`                                                          |
+| `logoutOrder`  | `1000`             | Slot order of the "Sign out" button in Settings → General (higher = lower on the page). Raise it if another plugin registers a bigger order |
+
+## Bundled configuration skill
+
+The package ships a configuration quick-reference skill at
+`.agents/skills/dsh-auth-gate-config/` (this page). Install it into the
+user-level dsh skill root so agents on the deployment side can answer
+"what configuration does auth-gate support?" directly:
+
+```sh
+pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/<profile>" exec dsh-auth skill install [--force]
+```
+
+It copies the skill to `$DSH_HOME/skills/dsh-auth-gate-config/`, which
+dsh's skill discovery picks up automatically. Re-running without
+`--force` keeps any local edits to the skill; use `--force` to refresh it
+from the package.
+
+The skill is a **user-only skill** (`disable-model-invocation: true` in its
+frontmatter): it stays out of the model's auto-invocable skill catalog so it
+does not sit in every agent turn, and you open it explicitly from the skill
+panel whenever you need the config reference (the UI marks it `user-only`).
+If you prefer the agent to answer configuration questions automatically,
+remove that frontmatter field after installation.
+
+## Troubleshooting
+
+### `dsh-auth: command not found`
+
+`dsh plugin --profile web add dsh-auth-gate` installs the package into the
+profile's `node_modules` (`$DSH_HOME/profiles/web/node_modules/dsh-auth-gate`,
+default `~/.dsh/...`), but nothing is added to your shell's `PATH`, so the CLI
+binary is not callable by name. This only affects the CLI — the plugin itself
+runs fine. Pick one:
+
+1. **Call it through the profile (recommended).** `dsh plugin` already requires
+   pnpm, so the CLI resolves from the same place the plugin lives:
+
+   ```sh
+   pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth user add admin --password-stdin
+   pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth user list
+   ```
+
+   Optionally, once per shell session:
+
+   ```sh
+   alias dsh-auth='pnpm --dir "${DSH_HOME:-$HOME/.dsh}/profiles/web" exec dsh-auth'
+   ```
+
+2. **Direct node invocation** (no pnpm needed at runtime):
+
+   ```sh
+   node "$DSH_HOME/profiles/web/node_modules/dsh-auth-gate/lib/cli.js" user add admin --password-stdin
+   ```
+
+3. **Install the package globally**, then `dsh-auth` is on your PATH:
+
+   ```sh
+   npm install -g dsh-auth-gate
+   dsh-auth user add admin --password-stdin
+   ```
+
+Whichever way you call it, the CLI manages the same shared user list
+(`$DSH_HOME/auth/users.yaml`, fallback `~/.dsh/auth/users.yaml`) that the plugin
+reads — the global copy is just a launcher.
 
 ## Troubleshooting
 
