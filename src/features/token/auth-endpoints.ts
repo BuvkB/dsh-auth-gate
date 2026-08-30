@@ -8,6 +8,18 @@ import {
 import { AUTH_PATH_PREFIX, type HttpHandler } from "../../gate/index.js";
 import { buildSetCookie, type SessionStore } from "../../session/index.js";
 
+/** 从 Accept-Language 头判断登录页语言（zh 开头 => 中文）。 */
+function langOf(req: { headers?: { [k: string]: string | undefined } }): string {
+  try {
+    const h = req.headers?.["accept-language"] ?? "";
+    if (/^\s*zh/i.test(h) || /,\s*zh/i.test(h)) return "zh";
+  } catch (_e) {
+    // ignore
+  }
+  return "en";
+}
+
+
 export interface AuthEndpointsDeps {
   /** 注册路由（index.ts 传入包装后的 server.register；被守卫包装但被 gate 白名单放行）。 */
   register(route: { kind: "exact" | "prefix"; path: string; handler: HttpHandler }): () => void;
@@ -77,7 +89,7 @@ function serveLoginPage(req: IncomingMessage, res: ServerResponse): void {
   const next = validateNext(queryOf(req).get("next") ?? "/");
   res.setHeader("cache-control", "no-store");
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end(loginPageHtml(next));
+  res.end(loginPageHtml(next, undefined, langOf(req)));
 }
 
 async function loginAttempt(
