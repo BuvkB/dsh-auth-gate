@@ -37,9 +37,10 @@ describe("login page HTML (token mode)", () => {
 });
 
 describe("login page HTML (password mode)", () => {
-  it("renders the zh brand and omits the login subtitle", () => {
+  it("renders the zh brand and keeps the subtitle line as blank space", () => {
     const html = passwordLoginPageHtml("/app", undefined, "zh");
     expect(html).not.toContain("欢迎回来，请登录以继续");
+    expect(html).toContain('<p class="subtitle"></p>');
     expect(html).toContain("探索未至之境");
   });
 

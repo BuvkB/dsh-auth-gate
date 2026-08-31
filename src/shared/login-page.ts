@@ -58,8 +58,7 @@ function buildSloganHtml(brandText: string): string {
 
 interface LoginCardOptions {
   title: string;
-  /** 可选副标题：token 模式保留；password 模式不再渲染副标题。 */
-  subtitle?: string;
+  subtitle: string;
   /** 每个字段：id/label/name/autocomplete/placeholder/type；password 字段自动带眼睛。 */
   fields: {
     id: string;
@@ -111,7 +110,7 @@ function renderLoginCard(options: LoginCardOptions): string {
 <main class="card">
 <div class="brand">${SHIELD_SVG}</div>
 <p class="slogan slogan-${options.htmlLang === "zh" ? "zh" : "en"}" data-cursor="blend">${options.sloganHtml}</p>
-${options.subtitle ? `<p class="subtitle">${options.subtitle}</p>` : ""}
+<p class="subtitle">${options.subtitle}</p>
 <form method="post" action="/auth/login">
 <input type="hidden" name="next" value="${escapeHtml(options.next)}">
 ${errorHtml}${fieldsHtml}
@@ -161,6 +160,8 @@ export function passwordLoginPageHtml(next: string, error?: string, lang?: strin
   const s = loginStrings(lang);
   return renderLoginCard({
     title: s.passwordTitle,
+    // 副标题文字已按用户要求移除，但保留该行布局占位（与有副标题版本视觉一致）。
+    subtitle: "",
     fields: [
       {
         id: "username",
