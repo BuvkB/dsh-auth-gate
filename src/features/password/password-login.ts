@@ -8,6 +8,7 @@ import {
 import { DUMMY_HASH } from "./password.js";
 import { LoginRateLimiter, type UsersLoadResult } from "../../shared/index.js";
 import { buildSetCookie, type SessionStore } from "../../session/index.js";
+import { issueSession } from "./session-issue.js";
 import {
   buildChallengeValue,
   CHALLENGE_COOKIE,
@@ -45,6 +46,13 @@ export interface PasswordLoginDeps {
   now: () => number;
   /** 挑战 cookie HMAC 密钥（进程级，apply() 生成；D10）。 */
   challengeMacKey: Uint8Array;
+  /**
+   * 可选：dsh launch-token 桥（0.1.2-alpha 起 client-connection 的页面 token 门）。
+   * 登录成功后 302 到 `launchTokenBridge()` 的相对 `/?token=`（浏览器自动 mint dsh
+   * cookie，沿用当前 origin）；返回 undefined / 抛错 / 未配置 → 原 302(next)。
+   * 桥失败绝不阻塞登录成功。
+   */
+  launchTokenBridge?: () => Promise<string | undefined>;
   logger: {
     error(message: unknown): void;
     info(message: unknown): void;
@@ -199,7 +207,7 @@ async function handlePasswordSubmit(
     return;
   }
   deps.limiter.recordSuccess(ip, accountKey); // P10：验证通过即清零失败桶（spec §4.7 步骤 7）
-  await issueSession(deps, res, store, username, next);
+  await issueSession(deps, res, store, username, next, undefined);
 }
 
 /** TOTP 拒绝路径（P1.3）：401 + 挑战页 HTML（error slot 固定文案，浏览器表单可见；
@@ -269,27 +277,6 @@ function rateLimitOk(
   res.end("too many attempts");
   deps.logger.info("rate limit exceeded");
   return false;
-}
-
-/** 发会话（P14）：subject=username，每次登录新会话；成功 → 302 + set-cookie。 */
-async function issueSession(
-  deps: PasswordLoginDeps,
-  res: ServerResponse,
-  store: SessionStore,
-  username: string,
-  next: string,
-  extraSetCookie?: string[],
-): Promise<void> {
-  const { token: sessionToken } = await store.create(username, deps.sessionTtl * 1000);
-  res.setHeader("cache-control", "no-store");
-  const cookies = [
-    ...(extraSetCookie ?? []),
-    buildSetCookie(deps.cookieName, sessionToken, deps.sessionTtl, deps.cookieSecure),
-  ];
-  res.setHeader("set-cookie", cookies);
-  res.writeHead(302, { location: next });
-  res.end();
-  deps.logger.info("session issued");
 }
 
 /** 415/413 响应（M19 复刻：413 先写 `connection: close`，不调 req.destroy）；无 status 的异常向上抛。 */

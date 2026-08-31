@@ -11,6 +11,7 @@ import {
 import { TotpReplayGuard, verifyTotpCode } from "./features/totp/index.js";
 import { LoginRateLimiter, defaultUsersFilePath, loadUsersFile } from "./shared/index.js";
 import { assertGuarded } from "./gate/index.js";
+import { makeLaunchTokenBridge } from "./launch-token-bridge.js";
 import { sessionDomainSpec, SessionStore } from "./session/index.js";
 
 /** 稳定 Cordis 插件名（host 组合行 id）。 */
@@ -165,6 +166,7 @@ function mountAuthEndpoints(
   config: AuthConfig,
   auth: AuthService,
   resolveToken: (() => Promise<string | undefined>) | undefined,
+  launchTokenBridge: () => Promise<string | undefined>,
   usersPath: string,
   limiter: LoginRateLimiter,
   replayGuard: TotpReplayGuard,
@@ -192,6 +194,7 @@ function mountAuthEndpoints(
           replayGuard.checkAndRecord(username, counter, code),
         now: Date.now,
         challengeMacKey,
+        launchTokenBridge,
         logoutOrder: config.logoutOrder,
         logger: log,
       })
@@ -222,6 +225,7 @@ export function apply(ctx: Context, config: AuthConfig): void {
   const log = ctx.logger("dsh-auth-gate");
 
   const resolveToken = config.mode === "token" ? makeTokenResolver(ctx, config, log) : undefined;
+  const launchTokenBridge = makeLaunchTokenBridge(ctx, log);
   const usersPath = config.usersFile === "" ? defaultUsersFilePath() : config.usersFile;
   const limiter = new LoginRateLimiter();
   const replayGuard = new TotpReplayGuard();
@@ -258,6 +262,7 @@ export function apply(ctx: Context, config: AuthConfig): void {
         config,
         auth,
         resolveToken,
+        launchTokenBridge,
         usersPath,
         limiter,
         replayGuard,

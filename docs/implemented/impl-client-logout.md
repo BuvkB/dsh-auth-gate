@@ -1,92 +1,100 @@
-# GUI 登出入口（client 半边）实施规格
+# GUI sign-out entry (client half) implementation spec
 
-> 范围：dsh-auth-gate 的 client 半边（browser 插件）。登出入口最初挂在会话头部右上角
-> （`conversation.session.header.utilities`）与新会话页右上角浮动（`shell.overlay`），
-> 后两次改版（侧边栏 footer 行 → 本版）最终落在**设置面板**：设置 → 通用设置 页底部
-> 一个居中的醒目「退出登录 / Sign out」按钮，文案接入 dsh 现有 locale 机制（随界面语言
-> 切换）。服务端端点（`POST /auth/logout`、`GET /auth/status`）M2/M3 已冻结并发布，
-> 本规格只动渲染层、打包层与文档。
+> Scope: the client half of dsh-auth-gate (browser plugin). The sign-out entry was originally placed at the
+> top-right of the session header (`conversation.session.header.utilities`) and as a floating element at the
+> top-right of the new-conversation page (`shell.overlay`); after two redesigns (sidebar footer row → this
+> version) it finally lands in the **settings panel**: a centered, prominent "退出登录 / Sign out" button at the
+> bottom of the Settings → General Settings page, whose copy uses dsh's existing locale mechanism (follows the
+> UI language switch). The server-side endpoints (`POST /auth/logout`, `GET /auth/status`) were already frozen
+> and released in M2/M3; this spec only touches the rendering layer, the packaging layer and docs.
 
 ---
 
-## 1. 背景与目标
+## 1. Background & Goals
 
-关闭登出闭环：认证后在 GUI 内一键登出。历史：0.6.5 放右上角（会话头部 + 新会话页
-浮动图标）→ 0.7.1 初版改侧边栏 footer 行 → 用户回退到「收进设置面板」，最终定为
-**设置 → 通用设置 页最下方的居中危险样式按钮**（避免右上角/侧边栏出现高频占位，
-同时也避开「footer action 渲染在设置触发行上方」的 shell 顺序问题）。
+Close the sign-out loop: one-click sign-out inside the GUI after authentication. History: 0.6.5 placed it at the
+top-right (session header + floating icon on the new-conversation page) → 0.7.1 first revision moved it to the
+sidebar footer row → the user fell back to "tucking it into the settings panel", finally settling on a centered
+danger-style button at the very bottom of the Settings → General Settings page (avoids high-frequency occupancy
+at the top-right/sidebar, and also sidesteps the shell ordering issue where "footer action renders above the
+settings trigger row").
 
-挂载契约（dsh 0.1.0-rc.7，本机 harness 与生产同为该版本）已实测核实：
+Mount-point contracts (dsh 0.1.0-rc.7, same version on the local harness and in production) have been verified by
+actual testing:
 
-- **挂载点 `settings.general.item`**（ui-settings-general 的 General 页声明、root
-  作用域、**list** 槽、`replaceRisk: none`）：「设置 → 通用设置」页的一条可追加行，
-  与 Agent 预设（-25）、权限（-20）、语言（0）、外观（10）、Enter 行为（20）同列表，
-  `order: 30` 排在最后 → **页面最下方**。注册契约 `{ id, order, label? }` + `locale`
-  （命名 `t` seat）；owner props 为空（`SettingsGeneralItemOwnerProps {}`）——行内
-  部（图标/文案/行为/可访问名）全部由本插件自绘。
-- **移除三处旧挂载**：`conversation.session.header.utilities`、`shell.overlay`
-  （右上角两处）与 `sidebar.footer.action`（侧边栏脚区行）。此后右上角与侧边栏
-  footer 均不再有登出入口。
-- **i18n**：文案经 `ctx.locale`（`dsh-client-locale` 的 LocaleRuntime）注册 `auth`
-  命名词典（zh/en 双语），槽位注册带 `locale: "auth"` → 渲染器给组件注入 `t` seat
-  （与「设置」里语言切换同一套机制；lookup 链 = 命名域 → common → 键自身）。语言切换
-  时 ledger 版本 bumped，`t` 读取活动语言即时跟随。
-- **端点约束（不变）**：`POST /auth/logout?next=/`（GET → 405，M22：next 仅从 query
-  取，校验回落 `/`）；`GET /auth/status` → `{"authenticated":true|false}`（只认 cookie）。
+- **Mount point `settings.general.item`** (declared by the General page of ui-settings-general, root scope,
+  **list** slot, `replaceRisk: none`): an appendable row on the Settings → General Settings page, in the same
+  list as the Agent presets (-25), permissions (-20), language (0), appearance (10) and Enter behavior (20);
+  `order: 30` puts it last → at the very bottom of the page. Registration contract `{ id, order, label? }` +
+  `locale` (injecting a `t` seat); owner props are empty (`SettingsGeneralItemOwnerProps {}`) — everything inside
+  the row (icon / copy / behavior / accessible name) is drawn by this plugin itself.
+- **Remove the three old mount points**: `conversation.session.header.utilities`, `shell.overlay`
+  (the two top-right spots) and `sidebar.footer.action` (the sidebar footer row). After this, neither the
+  top-right nor the sidebar footer has a sign-out entry anymore.
+- **i18n**: copy registers an `auth` namespace dictionary (bilingual zh/en) via `ctx.locale` (LocaleRuntime of
+  `dsh-client-locale`); slot registration carries `locale: "auth"` → the renderer injects a `t` seat into the
+  component (the same mechanism as the language switch in Settings; lookup chain = namespace → common → the key
+  itself). When the language switches, the ledger version is bumped and `t` follows the active language
+  immediately.
+- **Endpoint constraints (unchanged)**: `POST /auth/logout?next=/` (GET → 405; M22: `next` is read only from
+  the query and validated with fallback to `/`); `GET /auth/status` → `{"authenticated":true|false}`
+  (cookie-only).
 
-## 2. 冻结决策
+## 2. Frozen Decisions
 
-| #   | 决策                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | 单处注册：`settings.general.item`，id `dsh-auth-gate-logout`，`order: 30`（General 页最后一条），`locale: "auth"`，`label` 为 thunk（`() => t("logout")`）。**移除**旧三处：`conversation.session.header.utilities`、`shell.overlay`、`sidebar.footer.action`。                                                                                                                                                                                                                                                                                                                       |
-| D2  | 登出仍走原生 `<form method="post" action="/auth/logout?next=/">`（零 JS 依赖；302 回落 `/` → 门禁 → 登录页）                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| D3  | 会话状态：组件挂载时 `fetch("/auth/status")` 一次；`authenticated: true` 才渲染，否则渲染 null（无残留 UI）                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| D4  | 视觉：设置面板内**居中醒目 CTA**（不再 32px 圆形图标、也不再列表行）——16px 方块+箭头 SVG（viewBox 24 不变，仅 width/height 16）+ 本地化文字；容器 `display:flex; justify-content:center; padding:20px 0 4px`；按钮 `inline-flex; gap:8px; padding:10px 24px; border-radius:12px`，填充 `--dsw-alias-state-error-primary`（危险动作语义）+ 文字 `--dsw-alias-label-primary-inverted`（反色标签），hover `filter: brightness(1.08)`（主题自适应，不硬编码色值）。内联 style，不引 CSS 文件、不引 primitives（依赖最小化）。对话框/面板结构由设置 shell 提供，本入口不占用任何 single 槽 |
-| D5  | i18n：`apply` 内 `ctx.effect(() => [ctx.locale.register("auth","zh",{logout:"退出登录"}), ctx.locale.register("auth","en",{logout:"Sign out"})], ...)`（双语词典挂纤维卸载级联）；槽位注册 `locale: "auth"` 注入 `t` seat；按钮文字与 `aria-label`/`title` 都用 `t("logout")`。不新建语言切换 UI（切换已存在于设置——General 的 Language 行）                                                                                                                                                                                                                                          |
-| D6  | 类型：延续本地结构镜像（`src/client/context.ts`，`AuthLocaleService` + `effect` 面、注册选项 `locale`），不 import 任何 `@deepseek-ai/*` 运行时值；manifest inject 不变；服务面 inject 为 `["slots", "locale"]`（locale 是 dsh 客户端内置服务，设置页语言行同源）                                                                                                                                                                                                                                                                                                                     |
-| D7  | 构建：不变（tsdown 单入口 `src/client/index.tsx` → `lib/client.js`，ModuleLoader id = 包名；client 声明通道生成 `lib/client/index.d.ts`）                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| D8  | 测试：jsdom（`@vitest-environment jsdom`）单测覆盖 apply 注册（新增 `settings.general.item`、双语词典注册、`locale`/`order`/thunk label）与组件分支（authenticated 真/假、文字标签 zh/en、form action/method、可访问名、hover 提亮）；fetch mock。已删除 HeroLogoutAction / SidebarLogoutAction 相关测试，统一为 `SettingsLogoutAction`。                                                                                                                                                                                                                                             |
-| D9  | 范围外：右上角/侧边栏入口复现、登出确认弹窗、`/auth/status` 轮询（仅挂载时一次）、client 登出后在 SPA 内的无痕刷新（302 整页跳转）、除按钮文字外的任何新 i18n。不改服务端端点/门禁/会话语义。                                                                                                                                                                                                                                                                                                                                                                                         |
+| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Single-point registration: `settings.general.item`, id `dsh-auth-gate-logout`, `order: 30` (last row on the General page), `locale: "auth"`, `label` is a thunk (`() => t("logout")`). **Remove** the old three: `conversation.session.header.utilities`, `shell.overlay`, `sidebar.footer.action`.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D2  | Sign-out still uses the native `<form method="post" action="/auth/logout?next=/">` (zero JS dependency; 302 fallback to `/` → gate → login page)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D3  | Session state: `fetch("/auth/status")` once when the component mounts; render only when `authenticated: true`, otherwise render null (no leftover UI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| D4  | Visual: a centered, prominent CTA inside the settings panel (no longer a 32px circular icon, no longer a list row) — a 16px square+arrow SVG (viewBox 24 unchanged, only width/height 16) + localized text; container `display:flex; justify-content:center; padding:20px 0 4px`; button `inline-flex; gap:8px; padding:10px 24px; border-radius:12px`, fill `--dsw-alias-state-error-primary` (danger-action semantics) + text `--dsw-alias-label-primary-inverted` (inverted label), hover `filter: brightness(1.08)` (theme-adaptive, no hardcoded color values). Inline style, no CSS file, no primitives (minimal dependencies). The dialog/panel structure is provided by the settings shell; this entry occupies no single slot |
+| D5  | i18n: inside `apply`, `ctx.effect(() => [ctx.locale.register("auth","zh",{logout:"退出登录"}), ctx.locale.register("auth","en",{logout:"Sign out"})], ...)` (bilingual dictionaries cascade on fiber unload); slot registration `locale: "auth"` injects the `t` seat; button text and `aria-label`/`title` all use `t("logout")`. No new language-switch UI (the switch already exists in Settings — the Language row in General)                                                                                                                                                                                                                                                                                                     |
+| D6  | Types: continue the local structure mirror (`src/client/context.ts`, `AuthLocaleService` + `effect` facet, registration option `locale`), import no `@deepseek-ai/*` runtime values; manifest inject unchanged; service-side inject is `["slots", "locale"]` (locale is a built-in dsh client service, same source as the language row on the settings page)                                                                                                                                                                                                                                                                                                                                                                           |
+| D7  | Build: unchanged (tsdown single entry `src/client/index.tsx` → `lib/client.js`, ModuleLoader id = package name; the client declaration channel generates `lib/client/index.d.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| D8  | Tests: jsdom (`@vitest-environment jsdom`) unit tests covering apply registration (new `settings.general.item`, bilingual dictionary registration, `locale`/`order`/thunk label) and component branches (authenticated true/false, text labels zh/en, form action/method, accessible name, hover highlight); fetch mock. The HeroLogoutAction / SidebarLogoutAction tests have been removed, unified into `SettingsLogoutAction`.                                                                                                                                                                                                                                                                                                      |
+| D9  | Out of scope: re-adding the top-right/sidebar entries, a sign-out confirmation dialog, polling `/auth/status` (once on mount only), seamless refresh inside the SPA after client sign-out (302 full-page redirect), any new i18n beyond the button text. No changes to server endpoints/gate/session semantics.                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-## 3. 文件蓝图
+## 3. File Blueprint
 
-| 文件                                                            | 动作     | 说明                                                                                                                                                                                             |
-| --------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/client/context.ts`                                         | 改       | 镜像新增 `AuthLocaleService`（register/bind）与 `AuthContext.effect`；`AuthSlotRegisterOptions` 增 `locale?: string`                                                                             |
-| `src/client/logout-action.tsx`                                  | 改       | `SettingsLogoutAction`（`{ t? }`）：`useAuthenticated` 门控 + `<form>` + 居中危险 CTA（16px 图标 + `t("logout")` 文字，hover 提亮）                                                              |
-| `src/client/index.tsx`                                          | 改       | 注册词典（zh/en，zh=退出登录）→ `ctx.slots.inject("settings.general.item", ...)` 单处注册（`locale`/`order:30`/thunk label）；移除三处旧注册；`inject = ["slots","locale"]`                      |
-| `src/client/logout-action.test.tsx`                             | 改       | apply 断言：双语词典注册 + 单槽注册；组件断言：zh/en 文字、无认证隐藏、hover 提亮（见 D8）                                                                                                       |
-| `docs/implemented/impl-client-logout.md`                        | 改       | 本规格（即此文件）                                                                                                                                                                               |
-| `docs/deployed/deployment.md` / `_zh`、`README`、`README.zh.md` | 改       | 「右上角/侧边栏底部登出」描述 → 设置面板醒目退出登录按钮；删过时截图 `docs/demo/logout-hero-blank.png`、`logout-conversation-en.png`；设计预览 `docs/design/**` 仅作历史参考、不再在 README 链接 |
-| `lib/client.js`、`lib/client/index.d.ts`                        | 构建产物 | 与 src 同批提交                                                                                                                                                                                  |
+| File                                                            | Action         | Description                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/client/context.ts`                                         | Modify         | Mirror adds `AuthLocaleService` (register/bind) and `AuthContext.effect`; `AuthSlotRegisterOptions` gains `locale?: string`                                                                                                                                                                             |
+| `src/client/logout-action.tsx`                                  | Modify         | `SettingsLogoutAction` (`{ t? }`): `useAuthenticated` gate + `<form>` + centered danger CTA (16px icon + `t("logout")` text, hover highlight)                                                                                                                                                           |
+| `src/client/index.tsx`                                          | Modify         | Register dictionaries (zh/en, zh = 退出登录) → single-point registration via `ctx.slots.inject("settings.general.item", ...)` (`locale`/`order:30`/thunk label); remove the three old registrations; `inject = ["slots","locale"]`                                                                      |
+| `src/client/logout-action.test.tsx`                             | Modify         | apply assertions: bilingual dictionary registration + single-slot registration; component assertions: zh/en text, hidden when unauthenticated, hover highlight (see D8)                                                                                                                                 |
+| `docs/implemented/impl-client-logout.md`                        | Modify         | This spec (i.e., this file)                                                                                                                                                                                                                                                                             |
+| `docs/deployed/deployment.md` / `_zh`, `README`, `README.zh.md` | Modify         | "Sign-out at the top-right/sidebar bottom" description → prominent sign-out button in the settings panel; delete outdated screenshots `docs/demo/logout-hero-blank.png`, `logout-conversation-en.png`; design previews `docs/design/**` are historical reference only, no longer linked from the README |
+| `lib/client.js`, `lib/client/index.d.ts`                        | Build artifact | Committed in the same change as src                                                                                                                                                                                                                                                                     |
 
-## 4. 验证步骤
+## 4. Verification Steps
 
-1. `npm run verify`（format:check + lint + type-check（含 client 通道）+ test:coverage
-   - lock:check）全绿，覆盖率 ≥80%。
-2. `npm run build`：`tsc -p tsconfig.build.json` + `tsdown` + client 声明通道；
-   `git diff --exit-code -- lib` 通过（产物同批提交）。
-3. 部署到生产（tencent-cloud，`dsh-web.service`）后真实浏览器验证：登录 → 设置 →
-   通用设置 → 页底出现居中的「退出登录 / Sign out」按钮 → 切换语言 → 按钮文字在
-   「退出登录」/ "Sign out" 间切换 → 点击 → 302 回落登录页 → 未带 cookie 的 SPA 请求
-   被门禁拦截。**会话头部右上角、新会话页右上角与侧边栏 footer 均不再有登出入口**。
-   按 `docs/specs/development.md` "GUI demos"约定配演示（截图 + 说明证明了什么）。
-4. 提交 development → PR → main（`feat:` → release-please）。
+1. `npm run verify` (format:check + lint + type-check (incl. client channel) + test:coverage
+   - lock:check) all green, coverage ≥ 80%.
+2. `npm run build`: `tsc -p tsconfig.build.json` + `tsdown` + client declaration channel;
+   `git diff --exit-code -- lib` passes (artifacts committed in the same change).
+3. After deploying to production (tencent-cloud, `dsh-web.service`), verify in a real browser: sign in →
+   Settings → General Settings → a centered "退出登录 / Sign out" button appears at the bottom of the page →
+   switch language → the button text toggles between "退出登录" / "Sign out" → click it → 302 falls back to the
+   login page → SPA requests without the cookie are blocked by the gate. **Neither the session-header top-right,
+   the new-conversation-page top-right, nor the sidebar footer has a sign-out entry anymore.** Prepare a demo per
+   the "GUI demos" convention in `docs/specs/development.md` (screenshots + what they prove).
+4. Commit to development → PR → main (`feat:` → release-please).
 
-## 5. 明确不做的事
+## 5. Explicitly Out of Scope
 
-- 不引入任何第三方运行时资源；client bundle 仍只依赖平台模块表（react）。
-- 不改动任何服务端端点/门禁/会话语义。
-- 不替换 `settings.section`/`settings.trigger` 等 single 槽（设置面板结构仍归
-  ui-settings-general / ui-settings）；只用**可追加**的 `settings.general.item`；
-  不碰侧边栏 shell、不占 `sidebar.footer.action`。
-- 不在设置之外新增语言切换控件（切换已存在于设置的 General → Language 行，这次只
-  让登出按钮文字跟随）。
-- 不做 i18n 之外的 UI 改动（确认弹窗、暗色模式专用样式等）。
+- No third-party runtime resources; the client bundle still only depends on the platform module table (react).
+- No changes to any server endpoints/gate/session semantics.
+- Do not replace single slots like `settings.section`/`settings.trigger` (the settings panel structure still
+  belongs to ui-settings-general / ui-settings); only the appendable `settings.general.item` is used; do not
+  touch the sidebar shell, do not occupy `sidebar.footer.action`.
+- No language-switch control outside Settings (the switch already exists in Settings → General → Language row;
+  this time only the sign-out button text follows it).
+- No UI changes beyond i18n (confirmation dialogs, dark-mode-specific styles, etc.).
 
-## 6. DoD（完成定义）
+## 6. DoD (Definition of Done)
 
-1. §3 文件全部落地，`npm run verify` 全绿，`lib/` 与 `src/` 同批提交。
-2. 生产部署后真实浏览器验证登出闭环（位置、双语文字、右上角/侧边栏无残留）。
-3. 提交信息符合 commitlint（`feat(client): move sign-out into settings as a centered
-CTA`），未在未经用户指示的情况下 push。
+1. All files in §3 land, `npm run verify` all green, `lib/` committed in the same change as `src/`.
+2. After production deployment, verify the sign-out loop in a real browser (placement, bilingual text, no
+   leftovers at the top-right/sidebar).
+3. Commit message complies with commitlint (`feat(client): move sign-out into settings as a centered
+CTA`), no push without the user's instruction.
