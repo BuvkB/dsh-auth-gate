@@ -37,9 +37,9 @@ describe("login page HTML (token mode)", () => {
 });
 
 describe("login page HTML (password mode)", () => {
-  it("renders the zh brand and subtitle", () => {
+  it("renders the zh brand and omits the login subtitle", () => {
     const html = passwordLoginPageHtml("/app", undefined, "zh");
-    expect(html).toContain("欢迎回来，请登录以继续");
+    expect(html).not.toContain("欢迎回来，请登录以继续");
     expect(html).toContain("探索未至之境");
   });
 
@@ -54,7 +54,7 @@ describe("login page HTML (password mode)", () => {
   it("defaults to English text when lang is undefined", () => {
     const html = passwordLoginPageHtml("/app");
     expect(html).toContain("Sign in");
-    expect(html).toContain("Welcome back - sign in to continue");
+    expect(html).not.toContain("Welcome back - sign in to continue");
     expect(html).toContain("Into the Unknown");
   });
 

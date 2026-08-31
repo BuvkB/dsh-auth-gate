@@ -37,7 +37,6 @@ function loginStrings(lang: string | undefined) {
     tokenPlaceholder: zh ? "粘贴令牌" : "Paste your token",
     tokenSubmit: zh ? "解锁" : "Unlock",
     passwordTitle: zh ? "登录" : "Sign in",
-    passwordSubtitle: zh ? "欢迎回来，请登录以继续" : "Welcome back - sign in to continue",
     usernameLabel: zh ? "用户名" : "Username",
     usernamePlaceholder: zh ? "请输入用户名" : "Enter your username",
     passwordLabel: zh ? "密码" : "Password",
@@ -59,7 +58,8 @@ function buildSloganHtml(brandText: string): string {
 
 interface LoginCardOptions {
   title: string;
-  subtitle: string;
+  /** 可选副标题：token 模式保留；password 模式不再渲染副标题。 */
+  subtitle?: string;
   /** 每个字段：id/label/name/autocomplete/placeholder/type；password 字段自动带眼睛。 */
   fields: {
     id: string;
@@ -111,7 +111,7 @@ function renderLoginCard(options: LoginCardOptions): string {
 <main class="card">
 <div class="brand">${SHIELD_SVG}</div>
 <p class="slogan slogan-${options.htmlLang === "zh" ? "zh" : "en"}" data-cursor="blend">${options.sloganHtml}</p>
-<p class="subtitle">${options.subtitle}</p>
+${options.subtitle ? `<p class="subtitle">${options.subtitle}</p>` : ""}
 <form method="post" action="/auth/login">
 <input type="hidden" name="next" value="${escapeHtml(options.next)}">
 ${errorHtml}${fieldsHtml}
@@ -161,7 +161,6 @@ export function passwordLoginPageHtml(next: string, error?: string, lang?: strin
   const s = loginStrings(lang);
   return renderLoginCard({
     title: s.passwordTitle,
-    subtitle: s.passwordSubtitle,
     fields: [
       {
         id: "username",
