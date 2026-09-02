@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.13.0](https://github.com/BuvkB/dsh-auth-gate/compare/v0.12.0...v0.13.0) (2026-09-02)
+
+
+### Features
+
+* align plugin name with package (dsh-auth-gate) ([ee3e436](https://github.com/BuvkB/dsh-auth-gate/commit/ee3e4368db4a1e5f36b3f7e1a33447340f3524b9))
+* align plugin name with package (dsh-auth-gate) ([9d67d60](https://github.com/BuvkB/dsh-auth-gate/commit/9d67d608d59532857f8f8edeedbaae598f0bdea6))
+* authenticated local proxy for the dsh configuration plane + X-Dsh-Proxy deny-list ([6a889c7](https://github.com/BuvkB/dsh-auth-gate/commit/6a889c710b203835bd99eedb09049a23aaf1220d))
+* auto-bridge dsh launch-token gate after login (grok-4.6 reviewed) ([b21a50f](https://github.com/BuvkB/dsh-auth-gate/commit/b21a50f5900203ed42e27644ae0043961015cec2))
+* **client:** add sign-out button to the sidebar foot ([a5bc397](https://github.com/BuvkB/dsh-auth-gate/commit/a5bc3971f39da93d29a6b898bc0c7c0e15254038))
+* **client:** move sign-out into the settings panel as a centered CTA ([#45](https://github.com/BuvkB/dsh-auth-gate/issues/45)) ([65e232b](https://github.com/BuvkB/dsh-auth-gate/commit/65e232b862ab58a2ad5ca0cfd7f10c9b5e27adb1))
+* **client:** move sign-out to the session header (top-right, icon-only) ([#37](https://github.com/BuvkB/dsh-auth-gate/issues/37)) ([613fd72](https://github.com/BuvkB/dsh-auth-gate/commit/613fd7250b086e11e05e889ac21e153e4fe5bd14))
+* configurable logout CTA order + bundled configuration skill ([#54](https://github.com/BuvkB/dsh-auth-gate/issues/54)) ([786c9c0](https://github.com/BuvkB/dsh-auth-gate/commit/786c9c0da1b25f51f10a7a593ff9739839eda1b3))
+* declare dsh.bundle manifest for one-command mounting ([c6a08cd](https://github.com/BuvkB/dsh-auth-gate/commit/c6a08cdd6d9d2dfad9bf2b117f1839beb8b1992f))
+* declare dsh.bundle manifest for one-command mounting ([3fa9c0f](https://github.com/BuvkB/dsh-auth-gate/commit/3fa9c0f5861be91e03bdcc4f3b43f93a37067665))
+* implement M1 auth guard and persistent session store ([168b41e](https://github.com/BuvkB/dsh-auth-gate/commit/168b41e145a9a737c48cf064530ad89ba88d23ba))
+* **login-page:** redesign login page with modern card UI ([ec54466](https://github.com/BuvkB/dsh-auth-gate/commit/ec544660df8b3c733c566343bf949a607124a780))
+* **login-page:** redesign login page with modern card UI ([edfe2d8](https://github.com/BuvkB/dsh-auth-gate/commit/edfe2d87c8d2759bab52e0497e98393dc0c0c6d6))
+* **login:** 登录页全面改版 —— Apple 风极简设计，保留 DeepSeek 品牌与标语动效 ([9b39229](https://github.com/BuvkB/dsh-auth-gate/commit/9b392296f5823dad1dc9b4591e21eb9300995277))
+* **m2:** shared token gate with login page and bearer auth ([aee37b4](https://github.com/BuvkB/dsh-auth-gate/commit/aee37b46162c446a2aa808294aa0c854f8ac23e3))
+* **m3:** password login flow with scrypt users file rate limit and CLI ([db21eac](https://github.com/BuvkB/dsh-auth-gate/commit/db21eac9ac30d5a2c1162b26d51597ac46db441d))
+* M4 TOTP two-stage login (RFC 6238 + challenge cookie + replay guard + user totp CLI) ([#60](https://github.com/BuvkB/dsh-auth-gate/issues/60)) ([320cdd0](https://github.com/BuvkB/dsh-auth-gate/commit/320cdd01941945e1b7398d7ddb43597603af550d))
+* **package:** add npm keywords for discoverability ([00efe5f](https://github.com/BuvkB/dsh-auth-gate/commit/00efe5f4590ac8da9f65249703c400c3b22860bc))
+* **package:** add npm keywords for discoverability ([479bb9d](https://github.com/BuvkB/dsh-auth-gate/commit/479bb9d79294aa5f7c7271c7abcd24214d7d78a7))
+* sign-out button in the GUI sidebar foot (client half) ([18347a7](https://github.com/BuvkB/dsh-auth-gate/commit/18347a79fa442762bebde2a347c9b1227390ffd4))
+
+
+### Bug Fixes
+
+* align sign-out button styles with the settings trigger ([765577b](https://github.com/BuvkB/dsh-auth-gate/commit/765577bc46cad86e03f87e3241bcc6db3c784811))
+* **ci:** pass release_created through job outputs so publish can run ([2af5e56](https://github.com/BuvkB/dsh-auth-gate/commit/2af5e563c66eb3d855604edf9973e8e2dd2d7062))
+* **ci:** pass release_created through job outputs so publish can run ([a894966](https://github.com/BuvkB/dsh-auth-gate/commit/a894966bcca15852700b329cd8018716d0a8e36f))
+* **client:** align sign-out button styles with the settings trigger ([600e200](https://github.com/BuvkB/dsh-auth-gate/commit/600e20035e45b7082b51ea129d0b5125fac1c16c))
+* **client:** match settings trigger width in wide state (calc +8px) ([dec24af](https://github.com/BuvkB/dsh-auth-gate/commit/dec24afef52e6d39e1b02e82a5070d048d1c9b25))
+* **client:** show the sign-out button on the new-session page ([#39](https://github.com/BuvkB/dsh-auth-gate/issues/39)) ([2f5f273](https://github.com/BuvkB/dsh-auth-gate/commit/2f5f2734f3a912bccb72c71b0c4eb28b0880790e))
+* **client:** show the sign-out on the blank new-session page ([#41](https://github.com/BuvkB/dsh-auth-gate/issues/41)) ([732b5d6](https://github.com/BuvkB/dsh-auth-gate/commit/732b5d6d4f5faefe6d0007fe2dfd29221a3f74a0))
+* **client:** use theme hover token for sign-out background ([dd01e11](https://github.com/BuvkB/dsh-auth-gate/commit/dd01e113acb41d3f3a72b2fb7867c014f995f15a))
+* **client:** use theme hover token for sign-out background ([088119f](https://github.com/BuvkB/dsh-auth-gate/commit/088119f4802e2b6da657ff14c1843c836912ea3c))
+* **cli:** resolve symlinked entry before running ([68e0046](https://github.com/BuvkB/dsh-auth-gate/commit/68e004605dcaf708b6ba9f39214f2fe7091ef066))
+* dsh-auth CLI entry check under symlinked installs ([f420f64](https://github.com/BuvkB/dsh-auth-gate/commit/f420f647c70d40b886f466f622e21f701f662bc5))
+* **login-page:** restore autofocus and raise contrast to WCAG AA ([9dd09de](https://github.com/BuvkB/dsh-auth-gate/commit/9dd09de95f6d4f923b15e83d2b61bf1871e6019d))
+* **login:** keep subtitle row as blank space (text removed, layout preserved) ([92bc840](https://github.com/BuvkB/dsh-auth-gate/commit/92bc840f55dec4444183cc5dae0cc3b0a0e21d83))
+* **login:** make verify green - share langOf, split assets, WCAG AA colors, add login page regression tests ([52301d1](https://github.com/BuvkB/dsh-auth-gate/commit/52301d199a4103fa578acd7b573c0d5c6c855483))
+* **login:** remove welcome back subtitle ([fc583e5](https://github.com/BuvkB/dsh-auth-gate/commit/fc583e54863a38b9639fcac9f76064de85582c1e))
+* **login:** resolve left-over merge marker, share langOf via shared layer ([b464c4f](https://github.com/BuvkB/dsh-auth-gate/commit/b464c4f794f7b58626f45d36c0d8cec8e8e629b0))
+* match settings trigger width in wide state ([f4fccb0](https://github.com/BuvkB/dsh-auth-gate/commit/f4fccb08e83609010bb4fb2662f601f47134a76b))
+* **password-login:** clear failure buckets on successful login ([e41f8c7](https://github.com/BuvkB/dsh-auth-gate/commit/e41f8c7238bc3151b610e7c260dfe400aadccbb4))
+* **password-login:** clear failure buckets on successful login + MIT license and metadata cleanup ([ec40f01](https://github.com/BuvkB/dsh-auth-gate/commit/ec40f0117345ae71a00c0f132a68142b7c4874d2))
+* **proxy:** relay upgrade/connection headers on WebSocket handshake ([#50](https://github.com/BuvkB/dsh-auth-gate/issues/50)) ([d6790b7](https://github.com/BuvkB/dsh-auth-gate/commit/d6790b7d7c002f6477b89d29d07849ffb78ad621))
+* sign TOTP challenge cookies and fail-close submit path ([#63](https://github.com/BuvkB/dsh-auth-gate/issues/63)) ([820e5e9](https://github.com/BuvkB/dsh-auth-gate/commit/820e5e90a8067162b03d4c9d0c72a50eb891d976))
+
 ## [0.12.0](https://github.com/TecFancy/dsh-auth-gate/compare/v0.11.1...v0.12.0) (2026-08-31)
 
 
