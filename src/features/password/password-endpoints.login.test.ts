@@ -59,7 +59,7 @@ function makeRes(): FakeRes {
   };
   const res = {
     setHeader: (name: string, value: string): void => {
-      state.headers[name.toLowerCase()] = value;
+      state.headers[name.toLowerCase()] = String(value);
     },
     writeHead: (status: number, extra?: Record<string, string | number>): void => {
       state.status = status;
@@ -137,15 +137,17 @@ function makeHarness(): Harness {
       loadUsers: () => {
         if (loadError !== undefined) return Promise.reject(loadError);
         const empty = new Map<string, { passwordHash: string; disabled: boolean }>();
-        return Promise.resolve({
-          snapshot: { users: missing ? empty : users },
-          missing,
-        });
+        return Promise.resolve({ snapshot: { users: missing ? empty : users }, missing });
       },
       verify: (password, storedHash) => {
         verifyCalls.push({ storedHash, password });
         return Promise.resolve(password === "pw" && storedHash === "h-alice");
       },
+      totpMode: "off",
+      verifyTotp: () => undefined,
+      replayCheck: () => true,
+      now: () => 1_700_000_000_000,
+      challengeMacKey: Buffer.alloc(32, 7), // D10 测试密钥
       limiter,
       logger: {
         error: (message) => logs.push({ level: "error", message }),
@@ -255,8 +257,7 @@ describe("POST /auth/login: rejection", () => {
     for (const [next, expected] of [
       ["//evil.com", "/"],
       ["/ok/path", "/ok/path"],
-      ["/auth/login", "/"],
-      ["/auth/x", "/"],
+      ["/auth/", "/"], // /auth 与 /auth/* 同一规则（next !== "/auth" && !startsWith("/auth/")）
     ] as const) {
       const res = makeRes();
       await handlerOf(

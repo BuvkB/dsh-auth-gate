@@ -4,9 +4,15 @@ import {
   parseCookieHeader,
   passwordLoginPageHtml,
   langOf,
+  totpChallengePageHtml,
 } from "../../shared/index.js";
 import { AUTH_PATH_PREFIX, type HttpHandler } from "../../gate/index.js";
-import { handlePasswordLogin, type PasswordLoginDeps } from "./password-login.js";
+import {
+  handlePasswordLogin,
+  CHALLENGE_COOKIE,
+  parseChallengeValue,
+  type PasswordLoginDeps,
+} from "./password-login.js";
 import { buildSetCookie } from "../../session/index.js";
 
 export interface PasswordEndpointsDeps extends PasswordLoginDeps {
@@ -49,6 +55,7 @@ function authCatchAll(_req: IncomingMessage, res: ServerResponse): void {
   res.end("not found");
 }
 
+// TODO(auth-m5): login CSRF token - re-evaluated in T13/D8, still not added.
 function handleLogin(
   deps: PasswordEndpointsDeps,
   req: IncomingMessage,
@@ -58,7 +65,20 @@ function handleLogin(
     const next = validateNext(queryOf(req).get("next") ?? "/");
     res.setHeader("cache-control", "no-store");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(passwordLoginPageHtml(next, undefined, langOf(req)));
+    // M4 T6：合法挑战 cookie → 渲染 TOTP 挑战页；否则密码页。
+    // off 模式忽略 TOTP（T4）：残留/伪造 cookie 一律渲染密码页。
+    const challenge = parseChallengeValue(
+      parseCookieHeader(req.headers.cookie, CHALLENGE_COOKIE),
+      deps.now(),
+      deps.challengeMacKey,
+    );
+    const showTotp = challenge !== undefined && deps.totpMode !== "off";
+    const lang = langOf(req);
+    res.end(
+      showTotp
+        ? totpChallengePageHtml(next, undefined, lang)
+        : passwordLoginPageHtml(next, undefined, lang),
+    );
     return;
   }
   if (req.method === "POST") {

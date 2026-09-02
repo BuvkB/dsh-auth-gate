@@ -5,12 +5,13 @@
  * aliases and css-module handling are dropped).
  *
  * Layers:
- *   root      src/index.ts, src/cli.ts, src/proxy-cli.ts + their tests +
- *             src/integration.*.test.ts and src/guard-proxy-deny.test.ts
+ *   root      src/index.ts, src/launch-token-bridge.ts, src/cli.ts, src/proxy-cli.ts
+ *             + their tests + src/integration.*.test.ts and
+ *             src/guard-proxy-deny.test.ts
  *   gate      src/gate/**        (one slice)
  *   shared    src/shared/**      (one slice, leaf - no upward deps)
  *   session   src/session/**      (core mechanism layer like gate/)
- *   features  src/features/<f>/**  (token | password | proxy)
+ *   features  src/features/<f>/**  (token | password | proxy | totp)
  *   client    src/client/**      (separate half: no host<->client imports)
  *
  * Rules:
@@ -32,13 +33,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC_DIR = join(ROOT, "src");
 const CODE_EXT = /\.(ts|tsx)$/;
-const FEATURE_SLICES = new Set(["token", "password", "proxy"]);
+const FEATURE_SLICES = new Set(["token", "password", "proxy", "totp"]);
 const ROOT_FILES = new Set([
   "index.ts",
+  "launch-token-bridge.ts",
   "index.test.ts",
   "index.password.test.ts",
   "cli.ts",
   "cli.test.ts",
+  "cli.totp.test.ts",
   "proxy-cli.ts",
   "proxy-cli.test.ts",
   "integration.auth.test.ts",
@@ -46,6 +49,9 @@ const ROOT_FILES = new Set([
   "integration.password.test.ts",
   "integration.password.rate.test.ts",
   "integration.session.test.ts",
+  "integration.totp.test.ts",
+  "integration.totp-hardening.test.ts",
+  "integration-totp-helpers.ts",
   "guard-proxy-deny.test.ts",
 ]);
 const errors = [];
@@ -99,6 +105,9 @@ function resolveTarget(parentRel, spec) {
   return withExt === undefined ? null : withExt;
 }
 
+/** A leaf target outside src/ that tests may import (test/ shared harness). */
+const TEST_DIR = join(ROOT, "test");
+
 for (const file of collectFiles(SRC_DIR)) {
   const rel = toPosix(relative(SRC_DIR, file));
   const Fslice = sliceOf(rel);
@@ -109,6 +118,14 @@ for (const file of collectFiles(SRC_DIR)) {
   const text = readFileSync(file, "utf8");
   const specifiers = [...text.matchAll(/from\s+"(\.[^"]+)"/g)].map((m) => m[1]);
   for (const spec of specifiers) {
+    // 测试共享 harness（src/ 外叶子）：任何 slice 可引，仅经相对路径解析到 test/ 时允许
+    const testTarget = toPosix(join(dirname(join(SRC_DIR, rel)), spec)).replace(
+      /\.(js|ts|tsx)$/,
+      "",
+    );
+    if (testTarget.startsWith(toPosix(TEST_DIR)) && existsSync(testTarget + ".ts")) {
+      continue;
+    }
     const targetRel = resolveTarget(rel, spec);
     if (targetRel === null) {
       errors.push(`${rel}: import "${spec}" 无法解析到 src 下的文件（fail-closed）`);

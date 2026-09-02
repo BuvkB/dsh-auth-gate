@@ -58,7 +58,7 @@ function makeRes(): FakeRes {
   };
   const res = {
     setHeader: (name: string, value: string): void => {
-      state.headers[name.toLowerCase()] = value;
+      state.headers[name.toLowerCase()] = String(value);
     },
     writeHead: (status: number, extra?: Record<string, string | number>): void => {
       state.status = status;
@@ -145,6 +145,11 @@ function makeHarness(): Harness {
         verifyCalls.push({ storedHash, password });
         return Promise.resolve(password === "pw" && storedHash === "h-alice");
       },
+      totpMode: "off",
+      verifyTotp: () => undefined,
+      replayCheck: () => true,
+      now: () => 1_700_000_000_000,
+      challengeMacKey: Buffer.alloc(32, 7), // D10 测试密钥
       limiter,
       logger: {
         error: (message) => logs.push({ level: "error", message }),

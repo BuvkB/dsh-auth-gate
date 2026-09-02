@@ -27,23 +27,35 @@ import {
 } from "./login-assets.js";
 
 /** 登录页文案字典：按浏览器语言返回中文或英文（默认英文）。 */
+function localized(zh: boolean, zhText: string, enText: string): string {
+  return zh ? zhText : enText;
+}
+
 function loginStrings(lang: string | undefined) {
   const zh = lang === "zh";
   return {
-    htmlLang: zh ? "zh" : "en",
-    tokenTitle: zh ? "解锁" : "Unlock",
-    tokenSubtitle: zh ? "请输入访问令牌继续" : "Enter your access token to continue",
-    tokenLabel: zh ? "访问令牌" : "Access token",
-    tokenPlaceholder: zh ? "粘贴令牌" : "Paste your token",
-    tokenSubmit: zh ? "解锁" : "Unlock",
-    passwordTitle: zh ? "登录" : "Sign in",
-    usernameLabel: zh ? "用户名" : "Username",
-    usernamePlaceholder: zh ? "请输入用户名" : "Enter your username",
-    passwordLabel: zh ? "密码" : "Password",
-    passwordPlaceholder: zh ? "请输入密码" : "Enter your password",
-    signInSubmit: zh ? "登录" : "Sign in",
+    htmlLang: localized(zh, "zh", "en"),
+    tokenTitle: localized(zh, "解锁", "Unlock"),
+    tokenSubtitle: localized(zh, "请输入访问令牌继续", "Enter your access token to continue"),
+    tokenLabel: localized(zh, "访问令牌", "Access token"),
+    tokenPlaceholder: localized(zh, "粘贴令牌", "Paste your token"),
+    tokenSubmit: localized(zh, "解锁", "Unlock"),
+    passwordTitle: localized(zh, "登录", "Sign in"),
+    usernameLabel: localized(zh, "用户名", "Username"),
+    usernamePlaceholder: localized(zh, "请输入用户名", "Enter your username"),
+    passwordLabel: localized(zh, "密码", "Password"),
+    passwordPlaceholder: localized(zh, "请输入密码", "Enter your password"),
+    signInSubmit: localized(zh, "登录", "Sign in"),
+    totpTitle: localized(zh, "验证", "Verify"),
+    totpSubtitle: localized(
+      zh,
+      "请输入验证器应用中的 6 位验证码",
+      "Enter the 6-digit code from your authenticator app",
+    ),
+    totpLabel: localized(zh, "验证码", "Verification code"),
+    totpSubmit: localized(zh, "验证", "Verify"),
     securedBy: "Secured by dsh-auth-gate",
-    brandText: zh ? "探索未至之境" : "Into the Unknown",
+    brandText: localized(zh, "探索未至之境", "Into the Unknown"),
   };
 }
 
@@ -69,6 +81,8 @@ interface LoginCardOptions {
     type: "text" | "password";
     /** M2 §4.4 / M3 P13 冻结要求：token 字段与 password 表单的密码字段需要它。 */
     autofocus?: boolean;
+    /** 附加 HTML 属性字符串（原样拼入 input 标签；调用方保证转义）。 */
+    attrs?: string;
   }[];
   submitLabel: string;
   next: string;
@@ -88,7 +102,8 @@ function renderLoginCard(options: LoginCardOptions): string {
   const fieldsHtml = options.fields
     .map((field) => {
       const autofocusAttr = field.autofocus === true ? " autofocus" : "";
-      const input = `<input id="${field.id}" type="${field.type}" name="${field.name}" autocomplete="${field.autocomplete}" placeholder="${field.placeholder}" aria-label="${field.label}" required${autofocusAttr}>`;
+      const extraAttr = field.attrs === undefined ? "" : ` ${field.attrs}`;
+      const input = `<input id="${field.id}" type="${field.type}" name="${field.name}" autocomplete="${field.autocomplete}" placeholder="${field.placeholder}" aria-label="${field.label}" required${autofocusAttr}${extraAttr}>`;
       const icon = field.type === "password" ? LOCK_ICON_SVG : USER_ICON_SVG;
       const iconHtml = `<span class="field-icon">${icon}</span>`;
       if (field.type === "password") {
@@ -182,6 +197,34 @@ export function passwordLoginPageHtml(next: string, error?: string, lang?: strin
       },
     ],
     submitLabel: s.signInSubmit,
+    sloganHtml: buildSloganHtml(s.brandText),
+    htmlLang: s.htmlLang,
+    securedBy: s.securedBy,
+    brandText: s.brandText,
+    next,
+    error,
+  });
+}
+
+/** TOTP 挑战页（M4 T6）：单验证码字段，两段式登录第二段。 */
+export function totpChallengePageHtml(next: string, error?: string, lang?: string): string {
+  const s = loginStrings(lang);
+  return renderLoginCard({
+    title: s.totpTitle,
+    subtitle: s.totpSubtitle,
+    fields: [
+      {
+        id: "code",
+        label: s.totpLabel,
+        name: "code",
+        autocomplete: "one-time-code",
+        placeholder: "000000",
+        type: "text",
+        autofocus: true,
+        attrs: 'inputmode="numeric" maxlength="6" pattern="[0-9]{6}"',
+      },
+    ],
+    submitLabel: s.totpSubmit,
     sloganHtml: buildSloganHtml(s.brandText),
     htmlLang: s.htmlLang,
     securedBy: s.securedBy,
